@@ -118,6 +118,16 @@ def normalize_phone(phone: str) -> str:
     return "+" + core if core else ""
 
 
+def is_mobile_number(normalized: str) -> bool:
+    """True if a +62-normalized number is an Indonesian mobile (WA-capable).
+
+    Mobile numbers always start with 8 after the country code (+628…). Landlines
+    use area codes instead (Jakarta 021 → +6221…, Bandung 022 → +6222…, etc.) and
+    have no WhatsApp, so we treat only +628… as a usable WA contact.
+    """
+    return normalized.startswith("+628")
+
+
 def canonical_website(url: str) -> str:
     """Strip tracking params and trailing slashes; lowercase host."""
     if not url:
@@ -140,7 +150,15 @@ def enrich_row(row: dict) -> dict:
     out["name"] = normalize_name(row.get("name", ""))
     parsed = parse_address(row.get("address", ""))
     out.update(parsed)
-    out["phone_normalized"] = normalize_phone(row.get("phone", ""))
+    # WA-only: keep mobile (+628…) as the contact number; park landlines (021, etc.)
+    # in phone_landline so they're auditable but never used for WA outreach.
+    _phone = normalize_phone(row.get("phone", ""))
+    if is_mobile_number(_phone):
+        out["phone_normalized"] = _phone
+        out["phone_landline"] = ""
+    else:
+        out["phone_normalized"] = ""
+        out["phone_landline"] = _phone
     out["website_canonical"] = canonical_website(row.get("website", ""))
     out["has_website"] = bool(out["website_canonical"])
     return out

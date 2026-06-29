@@ -6,7 +6,7 @@ config/*.json
 # Generated data
 data/output/*
 !data/output/.gitkeep
-data/ledger.csv
+ledger.csv
 
 # Python
 __pycache__/

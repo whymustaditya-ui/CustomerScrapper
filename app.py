@@ -199,9 +199,10 @@ def _run_pipeline():
 
     excluded = internal_dropped + low_review_excluded + customer_excluded + ledger_seen
 
-    # 8. Append accepted leads to ledger
-    if use_ledger and new_leads:
-        dedup_mod.append_to_ledger(new_leads)
+    # 8. (No ledger write here.) A lead is committed to the ledger only when it's
+    # actually released to the Sheet (crm/tracker.release_next_batch). That way the
+    # ledger == "leads saved to the CRM", so scraping without releasing never burns
+    # a lead, and the no-double guarantee tracks the Sheet, not transient scrapes.
 
     # 9. Build summary
     phone_hit = sum(1 for r in new_leads if r.get("phone_normalized"))

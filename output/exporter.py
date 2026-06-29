@@ -17,7 +17,7 @@ OUTPUT_DIR = os.path.join("data", "output")
 # Display/export column order. Qontak-import-friendly fields come first in the CSV.
 LEAD_COLUMNS = [
     "name", "industry", "gmaps_category", "store_size", "store_size_score",
-    "phone_normalized", "website_canonical", "kelurahan", "kota",
+    "phone_normalized", "phone_landline", "website_canonical", "kelurahan", "kota",
     "address", "rating", "review_count", "price_level", "photo_count",
     "parse_confidence", "matched_term", "query_area", "place_id", "place_url",
     "skipped_fields",

@@ -18,7 +18,7 @@ import pandas as pd
 
 from enrich.parser import normalize_phone, normalize_name
 
-LEDGER_PATH = os.path.join("data", "ledger.csv")
+LEDGER_PATH = "ledger.csv"
 _FUZZY_NAME_THRESHOLD = 0.88
 
 

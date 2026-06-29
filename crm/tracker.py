@@ -103,7 +103,10 @@ def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict
     # a batch, even if the caller passed a pool that wasn't pre-deduped.
     pool, _internal_dropped = dedup_mod.internal_dedup(pool)
 
-    # Filter the scored pool against the Sheet (and the ledger as belt-and-suspenders).
+    # Filter the scored pool against the Sheet — the Sheet is the dedup authority
+    # for batches. (We deliberately do NOT filter against the master ledger here:
+    # the scrape step already appended this run's leads to the ledger, so a ledger
+    # filter would reject the very pool we're trying to release.)
     pids, phones, namekels = _existing_keys(tracker)
     fresh = []
     for row in pool:
@@ -115,7 +118,6 @@ def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict
         if name_kel and name_kel in namekels:
             continue
         fresh.append(row)
-    fresh, _ledger_seen = dedup_mod.filter_against_ledger(fresh)
 
     if not fresh:
         return {
