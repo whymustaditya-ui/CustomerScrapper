@@ -81,7 +81,8 @@ def _worksheet(columns: list[str] | None = None):
     if columns:
         existing = ws.row_values(1)
         if not existing:
-            ws.update("A1", [columns])
+            # Named args: gspread changed update()'s positional order across versions.
+            ws.update(values=[columns], range_name="A1")
     return ws
 
 
