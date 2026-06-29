@@ -55,6 +55,12 @@ with st.sidebar:
 
     max_results = st.slider("Max results (hard cap)", 10, 200, 40, step=10)
 
+    min_reviews = st.slider(
+        "Minimum reviews (legit filter)", 0, 50, 5, step=1,
+        help="Drop listings with fewer reviews than this — 0-review listings are "
+             "ghost/fake leads. 5 keeps real small caterers; raise to 10 for stricter.",
+    )
+
     watch_mode = st.checkbox(
         "👁 Watch Mode (visible browser, human-paced, anti-block)", value=False,
         help="Slower but harder for Google to block, and you can watch it work. "
@@ -170,6 +176,17 @@ def _run_pipeline():
         bc = name_counts.get((r.get("name", "") or "").strip().lower(), 1)
         r.update(score_row(r, branch_count=bc))
 
+    # 5b. Legit filter — drop ghost/low-review listings (auditable, not silent).
+    legit, low_review_excluded = [], []
+    for r in unique:
+        if (r.get("review_count") or 0) < min_reviews:
+            rr = dict(r)
+            rr["exclude_reason"] = f"below minimum reviews ({min_reviews})"
+            low_review_excluded.append(rr)
+        else:
+            legit.append(r)
+    unique = legit
+
     # 6. Dedup against customer list
     customer_df = _load_customer_df(customer_file)
     kept, customer_excluded = dedup_mod.dedup_customers(unique, customer_df)
@@ -180,7 +197,7 @@ def _run_pipeline():
     else:
         new_leads, ledger_seen = kept, []
 
-    excluded = internal_dropped + customer_excluded + ledger_seen
+    excluded = internal_dropped + low_review_excluded + customer_excluded + ledger_seen
 
     # 8. Append accepted leads to ledger
     if use_ledger and new_leads:
@@ -192,7 +209,9 @@ def _run_pipeline():
         "run_kota": kota,
         "categories": ", ".join(buckets),
         "raw_listings": len(raw),
-        "after_internal_dedup": len(unique),
+        "after_internal_dedup": len(unique) + len(low_review_excluded),
+        "min_reviews": min_reviews,
+        "excluded_low_review": len(low_review_excluded),
         "excluded_customers": len(customer_excluded),
         "excluded_ledger": len(ledger_seen),
         "final_leads": len(new_leads),
@@ -221,12 +240,13 @@ if "result" in st.session_state:
     leads, excluded, summary = result["leads"], result["excluded"], result["summary"]
 
     st.subheader("Run summary")
-    c = st.columns(5)
+    c = st.columns(6)
     c[0].metric("Final leads", summary["final_leads"])
     c[1].metric("Phone hit-rate", f"{summary['phone_hit_rate_pct']}%")
     c[2].metric("Raw scraped", summary["raw_listings"])
-    c[3].metric("Excl. customers", summary["excluded_customers"])
-    c[4].metric("Excl. ledger", summary["excluded_ledger"])
+    c[3].metric(f"Excl. <{summary.get('min_reviews', 0)} rev", summary.get("excluded_low_review", 0))
+    c[4].metric("Excl. customers", summary["excluded_customers"])
+    c[5].metric("Excl. ledger", summary["excluded_ledger"])
 
     st.subheader("Leads")
     if leads:
