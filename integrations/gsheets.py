@@ -54,7 +54,27 @@ def status_message() -> str:
     return "✅ Google Sheet connected."
 
 
-def _worksheet(columns: list[str] | None = None):
+def _header_for(columns: list[str] | None, header_row: list[str] | None) -> list[str]:
+    """The labels to write to row 1 — friendly header_row if given, else the keys."""
+    return list(header_row) if header_row else list(columns or [])
+
+
+def _reverse_map(columns: list[str] | None, header_row: list[str] | None) -> dict:
+    """Map any sheet header (friendly label OR raw machine key) back to the key.
+
+    Lets reads stay correct whether the Sheet still has the old machine headers or
+    the new friendly labels, so the layout repair never has to run first.
+    """
+    rev: dict[str, str] = {}
+    if header_row and columns:
+        for col, label in zip(columns, header_row):
+            rev[label] = col
+    for col in (columns or []):
+        rev.setdefault(col, col)
+    return rev
+
+
+def _worksheet(columns: list[str] | None = None, header_row: list[str] | None = None):
     """Return the gspread worksheet handle, creating it + header if needed."""
     if not is_configured():
         raise GSheetsNotConfigured(status_message())
@@ -82,28 +102,49 @@ def _worksheet(columns: list[str] | None = None):
         existing = ws.row_values(1)
         if not existing:
             # Named args: gspread changed update()'s positional order across versions.
-            ws.update(values=[columns], range_name="A1")
+            ws.update(values=[_header_for(columns, header_row)], range_name="A1")
     return ws
 
 
-def read_tracker(columns: list[str] | None = None) -> pd.DataFrame:
-    """Return the full CRM sheet as a DataFrame (empty frame if sheet is empty)."""
-    ws = _worksheet(columns)
+def read_tracker(columns: list[str] | None = None, header_row: list[str] | None = None) -> pd.DataFrame:
+    """Return the full CRM sheet as a DataFrame keyed by machine column names.
+
+    Tolerant to the header style: friendly labels or old machine keys both map back
+    to the canonical `columns` names.
+    """
+    ws = _worksheet(columns, header_row)
     records = ws.get_all_records()  # list of dicts keyed by header row
     df = pd.DataFrame(records)
+    if not df.empty:
+        rev = _reverse_map(columns, header_row)
+        df = df.rename(columns={c: rev[c] for c in df.columns if c in rev})
     if df.empty and columns:
         df = pd.DataFrame(columns=columns)
     return df
 
 
-def append_rows(rows: list[dict], columns: list[str]) -> int:
+def append_rows(rows: list[dict], columns: list[str], header_row: list[str] | None = None) -> int:
     """Append rows (ordered by `columns`) to the sheet. Returns count appended."""
     if not rows:
         return 0
-    ws = _worksheet(columns)
+    ws = _worksheet(columns, header_row)
     values = [[_cell(r.get(c, "")) for c in columns] for r in rows]
     ws.append_rows(values, value_input_option="USER_ENTERED")
     return len(values)
+
+
+def overwrite_tracker(rows: list[dict], columns: list[str], header_row: list[str] | None = None) -> int:
+    """Clear the worksheet and rewrite header + all rows in canonical order.
+
+    Used by the layout repair to switch an existing Sheet to friendly headers and
+    backfill new columns. Returns the number of data rows written.
+    """
+    ws = _worksheet(columns, header_row)
+    values = [_header_for(columns, header_row)]
+    values += [[_cell(r.get(c, "")) for c in columns] for r in rows]
+    ws.clear()
+    ws.update(values=values, range_name="A1")
+    return len(rows)
 
 
 def _cell(v) -> str:

@@ -11,7 +11,9 @@ per enrich/dedup) is absent from BOTH the Sheet and the master ledger.
 
 from __future__ import annotations
 
+import re
 from datetime import date
+from urllib.parse import quote_plus
 
 import pandas as pd
 
@@ -19,13 +21,41 @@ from enrich import dedup as dedup_mod
 from integrations import gsheets
 
 # Order of columns written to the Sheet. Workflow fields first (what Nathan touches),
-# then lead data, then the dedup key.
+# then lead data, then the dedup key. `maps_link` is intentionally kept LAST so that
+# adding it never shifts the existing columns of a live Sheet — old rows just get a
+# blank trailing cell until the layout repair backfills them.
 TRACKER_COLUMNS = [
     "batch_id", "date_added", "status", "owner", "next_action_date", "notes",
     "name", "industry", "store_size", "store_size_score",
     "phone_normalized", "wa_link", "website_canonical",
-    "kelurahan", "kota", "address", "place_id",
+    "kelurahan", "kota", "address", "place_id", "maps_link",
 ]
+
+# Human-readable header labels (Bahasa Indonesia) shown in row 1 of the Sheet.
+# The code keeps using the machine keys above internally; only the display label
+# changes. Reads are tolerant of BOTH the friendly label and the old machine name,
+# so an existing Sheet keeps working before the layout is repaired.
+TRACKER_HEADERS = {
+    "batch_id": "Batch",
+    "date_added": "Tgl Masuk",
+    "status": "Status",
+    "owner": "PIC",
+    "next_action_date": "Tgl Follow-up",
+    "notes": "Catatan",
+    "name": "Nama Bisnis",
+    "industry": "Industri",
+    "store_size": "Ukuran Usaha",
+    "store_size_score": "Skor",
+    "phone_normalized": "No. WhatsApp",
+    "wa_link": "Chat WA",
+    "website_canonical": "Website",
+    "kelurahan": "Kelurahan",
+    "kota": "Kota",
+    "address": "Alamat",
+    "place_id": "ID Lokasi",
+    "maps_link": "Lokasi Maps",
+}
+TRACKER_HEADER_ROW = [TRACKER_HEADERS[c] for c in TRACKER_COLUMNS]
 
 # A lead is "worked" once it has moved off New (≥ Contacted).
 STATUS_NEW = "New"
@@ -38,6 +68,34 @@ def build_wa_link(phone_normalized: str) -> str:
     """wa.me click-to-chat link from a +62 number (digits only, no +)."""
     digits = "".join(ch for ch in (phone_normalized or "") if ch.isdigit())
     return f"https://wa.me/{digits}" if digits else ""
+
+
+_CID_RE = re.compile(r"0x[0-9a-fA-F]+:0x([0-9a-fA-F]+)$")
+
+
+def build_maps_link(row: dict) -> str:
+    """A clickable Google Maps link for a lead, most precise source first.
+
+    1. `place_url` — the exact listing URL captured at scrape time.
+    2. `place_id` in hex feature form (0xAAAA:0xBBBB) -> a direct `?cid=` link.
+       The CID is the decimal of the second hex half and lands on the exact pin.
+    3. Fallback — a Maps search by name + address (always resolves for a named
+       business), so even rows without a place id still get a working link.
+    """
+    url = (row.get("place_url") or "").strip()
+    if url.startswith("http"):
+        return url
+
+    m = _CID_RE.match((row.get("place_id") or "").strip())
+    if m:
+        return f"https://maps.google.com/?cid={int(m.group(1), 16)}"
+
+    query = ", ".join(
+        p for p in (row.get("name", ""), row.get("address", ""), row.get("kota", "")) if p
+    ).strip()
+    if query:
+        return f"https://www.google.com/maps/search/?api=1&query={quote_plus(query)}"
+    return ""
 
 
 def _is_worked(status: str) -> bool:
@@ -85,7 +143,7 @@ def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict
       {released: bool, reason: str, batch_id: int|None,
        leads: list[dict], unworked: list[dict], remaining_pool: int}
     """
-    tracker = gsheets.read_tracker(TRACKER_COLUMNS)
+    tracker = gsheets.read_tracker(TRACKER_COLUMNS, TRACKER_HEADER_ROW)
 
     complete, unworked = current_batch_complete(tracker)
     if not complete:
@@ -142,9 +200,10 @@ def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict
         row["next_action_date"] = ""
         row["notes"] = ""
         row["wa_link"] = build_wa_link(row.get("phone_normalized", ""))
+        row["maps_link"] = build_maps_link(row)
         batch_rows.append(row)
 
-    gsheets.append_rows(batch_rows, TRACKER_COLUMNS)
+    gsheets.append_rows(batch_rows, TRACKER_COLUMNS, TRACKER_HEADER_ROW)
     dedup_mod.append_to_ledger(chosen)
 
     return {
@@ -155,3 +214,26 @@ def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict
         "unworked": [],
         "remaining_pool": len(fresh) - len(chosen),
     }
+
+
+def repair_sheet_layout() -> dict:
+    """One-click tidy-up for an existing Sheet: friendly headers + Maps links.
+
+    Rewrites row 1 to the human-readable labels and backfills `maps_link` (and any
+    missing `wa_link`) for rows already in the Sheet, then writes everything back in
+    the canonical column order. Idempotent — safe to run repeatedly. Existing status
+    edits and notes are preserved because we read the rows first and only fill gaps.
+    """
+    df = gsheets.read_tracker(TRACKER_COLUMNS, TRACKER_HEADER_ROW)
+    rows = df.to_dict("records") if not df.empty else []
+    filled = 0
+    for r in rows:
+        if not str(r.get("maps_link", "") or "").strip():
+            link = build_maps_link(r)
+            if link:
+                r["maps_link"] = link
+                filled += 1
+        if not str(r.get("wa_link", "") or "").strip():
+            r["wa_link"] = build_wa_link(r.get("phone_normalized", ""))
+    written = gsheets.overwrite_tracker(rows, TRACKER_COLUMNS, TRACKER_HEADER_ROW)
+    return {"rows": written, "maps_links_filled": filled}

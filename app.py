@@ -9,6 +9,8 @@ Run:  streamlit run app.py
 
 from __future__ import annotations
 
+import time
+
 import pandas as pd
 import streamlit as st
 
@@ -24,6 +26,44 @@ from integrations import gsheets
 from crm import tracker as crm_tracker
 
 st.set_page_config(page_title="ROSH Customer Scraper", page_icon="📦", layout="wide")
+
+# ---------------------------------------------------------------- styles
+_LOADER_CSS = """
+<style>
+/* Brand the native progress bar with a warm ROSH gradient. */
+[data-testid="stProgress"] div[role="progressbar"] > div {
+    background-image: linear-gradient(90deg, #f97316 0%, #fb923c 50%, #f59e0b 100%);
+}
+.rosh-loader {
+    border: 1px solid rgba(249, 115, 22, 0.35);
+    border-radius: 16px;
+    padding: 18px 22px;
+    margin: 6px 0 14px 0;
+    background: linear-gradient(135deg, rgba(249,115,22,0.10), rgba(245,158,11,0.04));
+    box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset;
+}
+.rosh-loader-head { display: flex; align-items: center; gap: 12px; }
+.rosh-dot {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #f97316; box-shadow: 0 0 0 0 rgba(249,115,22,0.6);
+    animation: rosh-pulse 1.4s infinite cubic-bezier(0.66, 0, 0, 1);
+}
+@keyframes rosh-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(249,115,22,0.55); }
+    70%  { box-shadow: 0 0 0 12px rgba(249,115,22,0); }
+    100% { box-shadow: 0 0 0 0 rgba(249,115,22,0); }
+}
+.rosh-loader-title { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.2px; }
+.rosh-loader-sub { color: rgba(180,180,180,0.95); font-size: 0.82rem; margin-top: 2px; }
+.rosh-activity {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.86rem; color: #fdba74; margin: 4px 0 2px 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rosh-activity::before { content: "▸ "; color: #f97316; }
+</style>
+"""
+st.markdown(_LOADER_CSS, unsafe_allow_html=True)
 
 st.title("📦 ROSH Super Customer Scraper")
 st.caption("Google Maps B2B lead-gen for ROSH packaging — Thinwall & Cup Oz.")
@@ -92,6 +132,21 @@ with st.sidebar:
     )
 
     st.divider()
+    st.subheader("Google Sheet")
+    if gsheets.is_configured():
+        if st.button("🔧 Rapikan header + isi link Maps", use_container_width=True,
+                     help="Ganti header jadi label rapih (Bahasa) dan tambah kolom "
+                          "Lokasi Maps untuk baris yang sudah ada. Aman diklik berulang."):
+            try:
+                rep = crm_tracker.repair_sheet_layout()
+                st.success(f"Sheet dirapikan — {rep['rows']} baris, "
+                           f"{rep['maps_links_filled']} link Maps ditambahkan.")
+            except Exception as e:
+                st.error(f"Gagal merapikan Sheet: {e}")
+    else:
+        st.caption("🔒 Sheet belum dikonfigurasi (lihat README).")
+
+    st.divider()
     st.subheader("Qontak push")
     qontak_configured = qontak.is_configured()
     st.caption(
@@ -117,14 +172,41 @@ def _load_customer_df(uploaded) -> pd.DataFrame | None:
 
 
 def _run_pipeline():
-    progress_bar = st.progress(0.0)
-    status = st.empty()
-    live_box = st.empty()
+    # --- polished loading panel --------------------------------------
+    panel = st.container()
+    with panel:
+        st.markdown(
+            "<div class='rosh-loader'>"
+            "<div class='rosh-loader-head'>"
+            "<span class='rosh-dot'></span>"
+            "<div><div class='rosh-loader-title'>Scraping Google Maps…</div>"
+            "<div class='rosh-loader-sub'>Human-paced & randomized to stay under "
+            "Google's radar — slower is safer. Leave this tab open.</div></div>"
+            "</div></div>",
+            unsafe_allow_html=True,
+        )
+        progress_bar = st.progress(0.0)
+        activity = st.empty()
+        mcols = st.columns(3)
+        m_leads = mcols[0].empty()
+        m_area = mcols[1].empty()
+        m_elapsed = mcols[2].empty()
+        live_box = st.empty()
+
+    start_ts = time.time()
     live_rows: list[dict] = []
+    m_leads.metric("Leads found", 0)
+    m_area.metric("Current area", "—")
+    m_elapsed.metric("Elapsed", "0s")
+
+    def _fmt_elapsed() -> str:
+        s = int(time.time() - start_ts)
+        return f"{s}s" if s < 60 else f"{s // 60}m {s % 60:02d}s"
 
     def on_progress(msg: str, frac: float):
-        status.info(msg)
         progress_bar.progress(min(max(frac, 0.0), 1.0))
+        activity.markdown(f"<div class='rosh-activity'>{msg}</div>", unsafe_allow_html=True)
+        m_elapsed.metric("Elapsed", _fmt_elapsed())
 
     def on_lead(lead: dict):
         live_rows.append({
@@ -133,6 +215,9 @@ def _run_pipeline():
             "phone": lead.get("phone", ""),
             "area": lead.get("query_area", ""),
         })
+        m_leads.metric("Leads found", len(live_rows))
+        m_area.metric("Current area", lead.get("query_area", "") or "—")
+        m_elapsed.metric("Elapsed", _fmt_elapsed())
         live_box.dataframe(pd.DataFrame(live_rows), use_container_width=True, height=240)
 
     # 1. Scrape
@@ -151,10 +236,14 @@ def _run_pipeline():
         on_lead=on_lead,
     )
     progress_bar.progress(1.0)
-    live_box.empty()
-    status.success(f"Scraped {len(raw)} raw listings. Enriching…")
+    activity.markdown(
+        f"<div class='rosh-activity'>Scraped {len(raw)} listings — enriching, scoring, "
+        "and deduping…</div>",
+        unsafe_allow_html=True,
+    )
 
     if not raw:
+        panel.empty()
         st.warning("No listings returned. GMaps may have blocked the run, or the "
                    "query was too narrow. Try a different area/category or lower volume.")
         return None
@@ -219,6 +308,7 @@ def _run_pipeline():
         "phone_hit_rate_pct": round(100 * phone_hit / len(new_leads), 1) if new_leads else 0,
     }
 
+    panel.empty()  # tear down the loading screen; results render below.
     return {"leads": new_leads, "excluded": excluded, "summary": summary}
 
 
@@ -227,8 +317,7 @@ if run:
     if not buckets:
         st.error("Pick at least one industry category.")
     else:
-        with st.spinner("Running…"):
-            result = _run_pipeline()
+        result = _run_pipeline()
         if result:
             st.session_state["result"] = result
             st.session_state["area_label"] = (
@@ -297,7 +386,9 @@ if "result" in st.session_state:
     else:
         # Show current batch completion status.
         try:
-            tracker_df = gsheets.read_tracker(crm_tracker.TRACKER_COLUMNS)
+            tracker_df = gsheets.read_tracker(
+                crm_tracker.TRACKER_COLUMNS, crm_tracker.TRACKER_HEADER_ROW
+            )
             complete, unworked = crm_tracker.current_batch_complete(tracker_df)
             latest = crm_tracker._latest_batch_id(tracker_df)
             if latest:
@@ -322,7 +413,8 @@ if "result" in st.session_state:
                 st.success(res["reason"] + f" Pool left: {res['remaining_pool']}.")
                 st.dataframe(
                     pd.DataFrame(res["leads"])[
-                        ["name", "store_size", "store_size_score", "phone_normalized", "wa_link", "kelurahan"]
+                        ["name", "store_size", "store_size_score", "phone_normalized",
+                         "wa_link", "maps_link", "kelurahan"]
                     ],
                     use_container_width=True,
                 )

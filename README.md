@@ -19,6 +19,11 @@ playwright install chromium
 
 ## Run
 
+**Easiest (Windows):** double-click **`Start ROSH Scraper.bat`**. First run sets up a
+local environment and installs everything automatically; later runs just launch.
+
+Or manually:
+
 ```bash
 streamlit run app.py
 ```
