@@ -19,10 +19,21 @@ from scraper.areas import KECAMATAN_TO_KOTA
 _KOTA_RE = re.compile(r"\b(kota|kabupaten|kab\.?)\s+([a-z ]+)", re.IGNORECASE)
 _POSTCODE_RE = re.compile(r"\b\d{5}\b")
 _RTRW_RE = re.compile(r"\brt\.?\s*\d+", re.IGNORECASE)
+# An abbreviated/spelled-out kecamatan marker, e.g. "Kec. Kby. Baru", "Kecamatan X".
+_KEC_RE = re.compile(r"^(kec\.?|kecamatan)\b", re.IGNORECASE)
+# Tokens that are clearly street/building lines, never a kelurahan.
+_NOT_KELURAHAN = ("jl", "jalan", "gg", "gang", "gedung", "blok", "komplek",
+                  "kompleks", "ruko", "lantai", "no.", "no ")
 
 
 def _clean_token(t: str) -> str:
     return t.strip(" .,").strip()
+
+
+def _normalize_kota(kota: str) -> str:
+    """Drop a leading 'Kota '/'Kabupaten ' so values match the areas reference."""
+    k = re.sub(r"^(kota|kabupaten|kab\.?)\s+", "", kota, flags=re.IGNORECASE).strip()
+    return k.title() if k else ""
 
 
 def parse_address(address: str) -> dict:
@@ -35,32 +46,48 @@ def parse_address(address: str) -> dict:
 
     kecamatan_idx = None
     matched_kota = ""
+    # Pass 1: an exact kecamatan name from the reference (e.g. "Kebayoran Baru").
     for idx, tok in enumerate(tokens):
         key = tok.lower()
         if key in KECAMATAN_TO_KOTA:
             kecamatan_idx = idx
             matched_kota = KECAMATAN_TO_KOTA[key]
             break
+    # Pass 2: an abbreviated marker like "Kec. Kby. Baru" — very common on GMaps,
+    # and the reason the first pilot only parsed 2/6 kelurahan.
+    if kecamatan_idx is None:
+        for idx, tok in enumerate(tokens):
+            if _KEC_RE.match(tok):
+                kecamatan_idx = idx
+                break
 
     kelurahan = ""
     kota = ""
     confidence = "low"
 
     if kecamatan_idx is not None:
-        # Kelurahan is usually the token before kecamatan, but skip RT/RW noise.
+        # Kelurahan is the nearest token before kecamatan that isn't street/RT-RW noise.
         for back in range(kecamatan_idx - 1, -1, -1):
             cand = tokens[back]
-            if _RTRW_RE.search(cand) or cand.lower().startswith("jl"):
+            low = cand.lower()
+            if _RTRW_RE.search(cand) or low.startswith(_NOT_KELURAHAN):
                 continue
             kelurahan = cand
             break
-        kota = matched_kota
-        confidence = "high"
+        if matched_kota:
+            kota = matched_kota
+            confidence = "high"
+        else:
+            # Kecamatan found by marker but not in reference — resolve kota from the
+            # explicit "Kota/Kab. X" token if present.
+            m = _KOTA_RE.search(address)
+            kota = _normalize_kota(m.group(0)) if m else ""
+            confidence = "high" if kelurahan else "medium"
     else:
         # Fallback: regex for explicit "Kota/Kab. X".
         m = _KOTA_RE.search(address)
         if m:
-            kota = "Kota " + _clean_token(m.group(2)).title()
+            kota = _normalize_kota(m.group(0))
             confidence = "medium"
 
     # Strip postcode that sometimes rides along on the kota token.
