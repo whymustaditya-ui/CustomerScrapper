@@ -26,7 +26,7 @@ streamlit run app.py
 Then in the browser:
 
 1. **Sidebar** — pick Kota (default Jakarta Selatan), industry category (default
-   Catering), max results, throttle, headless toggle.
+   Catering), max results, **Watch Mode**, and pacing sliders.
 2. (Optional) upload an **existing-customer CSV/Excel** to exclude current customers.
 3. Keep **Filter against master ledger** on so weekly re-runs only surface *new* leads.
 4. **▶ Run scrape** → watch progress → review the sortable results table.
@@ -36,6 +36,26 @@ Then in the browser:
 6. **Build Nathan's next batch (10)** — releases the top 10 highest-scored fresh leads
    into the shared Google Sheet. See "Outreach discipline" below.
 7. **Push to Qontak** — dry-run (logs payloads) until you add credentials (Phase 3).
+
+## Headless vs Watch Mode (anti-block)
+
+Both modes extract identical data with identical code. The only differences are
+speed and how likely Google is to block the run. Raw headless Playwright gets
+flagged in 10–50 requests on a home IP — so the anti-block stack matters at scale.
+
+| | Headless (default) | Watch Mode |
+|---|---|---|
+| Speed | Fast | 2–4× slower (human-paced) |
+| Block risk | Higher | Lower — visible browser + human cursor/pacing |
+| Data quality | Identical | Identical |
+| Watch it work | No | Yes — animated cursor, live-streaming table |
+
+The full stack: **non-uniform random pacing (the sliders) + `playwright-stealth`
+(auto-applied if installed) + your home/residential IP + Watch Mode visibility.**
+Pacing is randomized between an x–y bound *and* drawn from a human-like distribution
+(fast mode, occasional long pause) — not flat-uniform. Use **headless** for fast
+weekly bulk once you trust the output; flip to **Watch Mode** for the pilot, demos,
+and as the fallback when headless starts getting blocked.
 
 ## Outreach discipline (why batches of 10)
 

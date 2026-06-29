@@ -54,8 +54,26 @@ with st.sidebar:
     )
 
     max_results = st.slider("Max results (hard cap)", 10, 200, 40, step=10)
-    throttle = st.slider("Throttle delay (s)", 1.0, 6.0, 2.0, step=0.5)
-    headless = st.checkbox("Headless browser", value=True)
+
+    watch_mode = st.checkbox(
+        "👁 Watch Mode (visible browser, human-paced, anti-block)", value=False,
+        help="Slower but harder for Google to block, and you can watch it work. "
+             "Use for the pilot and as a fallback when headless gets blocked.",
+    )
+    if watch_mode:
+        st.caption("Watch Mode on — browser runs visible with a simulated cursor. "
+                   "2–4× slower; better at avoiding blocks.")
+        headless = False
+    else:
+        headless = st.checkbox("Headless browser (faster, more detectable)", value=True)
+
+    st.caption("Pacing — randomized human-like delays (non-uniform).")
+    delay_min, delay_max = st.slider(
+        "Delay between places (s)", 0.5, 15.0, (2.0, 8.0), step=0.5,
+    )
+    scroll_min, scroll_max = st.slider(
+        "Delay between scrolls (s)", 0.3, 5.0, (0.8, 2.0), step=0.1,
+    )
 
     st.divider()
     st.subheader("Dedup")
@@ -95,10 +113,21 @@ def _load_customer_df(uploaded) -> pd.DataFrame | None:
 def _run_pipeline():
     progress_bar = st.progress(0.0)
     status = st.empty()
+    live_box = st.empty()
+    live_rows: list[dict] = []
 
     def on_progress(msg: str, frac: float):
         status.info(msg)
         progress_bar.progress(min(max(frac, 0.0), 1.0))
+
+    def on_lead(lead: dict):
+        live_rows.append({
+            "name": lead.get("name", ""),
+            "category": lead.get("gmaps_category", "") or lead.get("industry", ""),
+            "phone": lead.get("phone", ""),
+            "area": lead.get("query_area", ""),
+        })
+        live_box.dataframe(pd.DataFrame(live_rows), use_container_width=True, height=240)
 
     # 1. Scrape
     raw = gmaps.scrape(
@@ -106,11 +135,17 @@ def _run_pipeline():
         kecamatan_list=selected_kecamatan if use_kecamatan else [],
         buckets=buckets,
         max_results=max_results,
-        throttle=throttle,
+        delay_min=delay_min,
+        delay_max=delay_max,
+        scroll_min=scroll_min,
+        scroll_max=scroll_max,
         headless=headless,
+        watch_mode=watch_mode,
         progress=on_progress,
+        on_lead=on_lead,
     )
     progress_bar.progress(1.0)
+    live_box.empty()
     status.success(f"Scraped {len(raw)} raw listings. Enriching…")
 
     if not raw:

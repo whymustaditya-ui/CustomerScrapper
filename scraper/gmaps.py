@@ -63,9 +63,117 @@ def _noop(msg: str, frac: float) -> None:
     pass
 
 
-def _human_pause(base: float) -> None:
-    """Sleep base seconds +/- jitter to look less robotic."""
-    time.sleep(base + random.uniform(0.2, base * 0.8 + 0.3))
+def human_delay(low: float, high: float) -> float:
+    """A human-like pause length in [low, high], NOT flat-uniform.
+
+    Real people cluster: most actions are quick with occasional long pauses
+    (reading a listing, getting distracted). We draw from a triangular distro
+    with the mode near the low end (fast bias + long tail), and ~10% of the time
+    stretch past `high` for a genuine "stepped away" pause. This is the pacing
+    Bro's senior flagged — randomized between x and y to match human behaviour —
+    refined so the distribution shape itself looks human, not just the bounds.
+    """
+    if high <= low:
+        return max(low, 0.0)
+    mode = low + 0.25 * (high - low)
+    val = random.triangular(low, high, mode)
+    if random.random() < 0.10:  # occasional long "distracted" pause
+        val = random.uniform(high, high * 1.6)
+    return val
+
+
+def _sleep_human(low: float, high: float) -> None:
+    time.sleep(human_delay(low, high))
+
+
+def _apply_stealth(page) -> bool:
+    """Apply playwright-stealth if available; tolerate version/API differences.
+
+    Masks automation fingerprints (navigator.webdriver, etc.) that Google's bot
+    detection targets. Degrades to a no-op (returns False) if the package isn't
+    installed — the scrape still runs, just more detectable.
+    """
+    try:
+        from playwright_stealth import stealth_sync  # older API (<2.0)
+        stealth_sync(page)
+        return True
+    except Exception:
+        pass
+    try:
+        from playwright_stealth import Stealth  # newer API (>=2.0)
+        Stealth().apply_stealth_sync(page)
+        return True
+    except Exception:
+        pass
+    return False
+
+
+_CURSOR_JS = """
+() => {
+  if (document.getElementById('__bot_cursor')) return;
+  const c = document.createElement('div');
+  c.id = '__bot_cursor';
+  c.style.cssText = 'position:fixed;z-index:2147483647;width:18px;height:18px;'
+    + 'margin:-9px 0 0 -9px;border-radius:50%;background:rgba(66,133,244,.65);'
+    + 'border:2px solid #1a73e8;box-shadow:0 0 8px rgba(26,115,232,.8);'
+    + 'pointer-events:none;transition:left .04s linear,top .04s linear;'
+    + 'left:50%;top:50%;';
+  document.body.appendChild(c);
+}
+"""
+
+
+def _inject_cursor(page) -> None:
+    """Add a visible cursor dot to the page (Watch Mode only)."""
+    try:
+        page.evaluate(_CURSOR_JS)
+    except Exception:
+        pass
+
+
+def _move_cursor(page, x: float, y: float, steps: int = 22) -> None:
+    """Animate the visible overlay + drive the real Playwright mouse to (x, y).
+
+    The overlay is what you *see* in Watch Mode; page.mouse.move fires the real
+    pointer events Google scores. Both, in human-eased steps. Fully best-effort —
+    any failure here must never break the scrape.
+    """
+    try:
+        box = page.evaluate("() => { const c=document.getElementById('__bot_cursor');"
+                            "return c ? {x: parseFloat(c.style.left)||0, y: parseFloat(c.style.top)||0} : {x:0,y:0}; }")
+        sx, sy = float(box.get("x", 0)), float(box.get("y", 0))
+    except Exception:
+        sx, sy = 0.0, 0.0
+    for i in range(1, steps + 1):
+        # ease-in-out for natural acceleration
+        t = i / steps
+        ease = t * t * (3 - 2 * t)
+        cx = sx + (x - sx) * ease
+        cy = sy + (y - sy) * ease
+        try:
+            page.evaluate(
+                "([x,y]) => { const c=document.getElementById('__bot_cursor');"
+                "if(c){c.style.left=x+'px';c.style.top=y+'px';} }",
+                [cx, cy],
+            )
+            page.mouse.move(cx, cy)
+        except Exception:
+            break
+        time.sleep(random.uniform(0.008, 0.022))
+
+
+def _cursor_to_element(page, el) -> None:
+    """Move the visible cursor to an element's center and hover it."""
+    try:
+        box = el.bounding_box()
+        if not box:
+            return
+        cx = box["x"] + box["width"] / 2
+        cy = box["y"] + box["height"] / 2
+        _move_cursor(page, cx, cy)
+        el.hover(timeout=2000)
+    except Exception:
+        pass
 
 
 def _safe_text(panel, selectors: Iterable[str]) -> str:
@@ -225,9 +333,14 @@ def scrape(
     kecamatan_list: list[str],
     buckets: list[str],
     max_results: int = 50,
-    throttle: float = 2.0,
+    delay_min: float = 2.0,
+    delay_max: float = 8.0,
+    scroll_min: float = 0.8,
+    scroll_max: float = 2.0,
     headless: bool = True,
+    watch_mode: bool = False,
     progress: ProgressFn = _noop,
+    on_lead: Optional[Callable[[dict], None]] = None,
 ) -> list[dict]:
     """Run the scrape grid and return a list of place dicts.
 
@@ -236,14 +349,21 @@ def scrape(
       kecamatan_list: kecamatan to iterate for coverage (use [""] for kota-only).
       buckets: industry buckets from categories.py (each expands to synonyms).
       max_results: hard cap on total places collected this run.
-      throttle: base delay (s) between actions; jitter is added on top.
-      headless: run browser headless.
+      delay_min/delay_max: human pause bounds (s) between places (non-uniform draw).
+      scroll_min/scroll_max: human pause bounds (s) between feed scrolls.
+      headless: run browser headless (ignored — forced visible — when watch_mode).
+      watch_mode: visible browser + simulated cursor + human pacing (anti-block).
       progress: callback(message, fraction 0..1) for UI updates.
+      on_lead: optional callback(lead_dict) fired as each lead is collected (live UI).
     """
+    if watch_mode:
+        headless = False  # the whole point of watch mode is to see it
+
     results: list[Place] = []
     seen_urls: set[str] = set()
 
-    # Build the query grid: every (synonym, area) pair.
+    # Build the query grid: every (synonym, area) pair, then shuffle so the run
+    # order isn't a predictable bot signature (session-level randomization).
     areas = kecamatan_list or [""]
     query_grid: list[tuple[str, str, str]] = []  # (term, bucket, area_label)
     for bucket in buckets:
@@ -251,8 +371,17 @@ def scrape(
             for kec in areas:
                 area_label = f"{kec} {kota}".strip() if kec else kota
                 query_grid.append((term, bucket, area_label))
+    random.shuffle(query_grid)
 
     total_steps = max(len(query_grid), 1)
+
+    def _emit(place: Place) -> None:
+        results.append(place)
+        if on_lead:
+            try:
+                on_lead(place.as_dict())
+            except Exception:
+                pass
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -262,6 +391,7 @@ def scrape(
             viewport={"width": 1366, "height": 900},
         )
         page = context.new_page()
+        _apply_stealth(page)
 
         try:
             for i, (term, bucket, area_label) in enumerate(query_grid):
@@ -279,6 +409,8 @@ def scrape(
                     continue
 
                 _dismiss_consent(page)
+                if watch_mode:
+                    _inject_cursor(page)
 
                 # Wait for the results feed; if it never appears, skip this query.
                 try:
@@ -293,11 +425,14 @@ def scrape(
                         _extract_detail(page, place)
                         if place.name and page.url not in seen_urls:
                             seen_urls.add(page.url)
-                            results.append(place)
+                            _emit(place)
                     continue
 
                 # Scroll the feed to load more cards.
-                _scroll_feed(page, max_cards=max_results - len(results), throttle=throttle)
+                _scroll_feed(
+                    page, max_cards=max_results - len(results),
+                    scroll_min=scroll_min, scroll_max=scroll_max, watch_mode=watch_mode,
+                )
 
                 # Collect place links from the feed.
                 links = page.query_selector_all('div[role="feed"] a[href*="/maps/place/"]')
@@ -306,6 +441,14 @@ def scrape(
                     href = a.get_attribute("href")
                     if href and href not in seen_urls:
                         place_urls.append(href)
+
+                # Watch mode: a visible "review" pass — hover the cards we're about to
+                # work so you can watch the robot move down the list. Done while the
+                # feed is still present; data retrieval below stays on reliable goto.
+                if watch_mode:
+                    for a in links[:min(len(place_urls), 6)]:
+                        _cursor_to_element(page, a)
+                        time.sleep(random.uniform(0.1, 0.4))
 
                 for href in place_urls:
                     if len(results) >= max_results:
@@ -318,14 +461,24 @@ def scrape(
                     except PWTimeout:
                         continue
 
+                    if watch_mode:
+                        _inject_cursor(page)
+                        title = page.query_selector("h1")
+                        if title:
+                            _cursor_to_element(page, title)
+
                     place = Place(
                         matched_term=term, industry=bucket, query_area=area_label,
                         place_url=href,
                     )
                     _extract_detail(page, place)
                     if place.name:
-                        results.append(place)
-                    _human_pause(throttle)
+                        _emit(place)
+                    _sleep_human(delay_min, delay_max)
+
+                # Occasional session-level noise: a brief idle between queries.
+                if random.random() < 0.25:
+                    _sleep_human(delay_min, delay_max)
 
             progress(f"Done. {len(results)} leads collected.", 1.0)
         finally:
@@ -335,7 +488,9 @@ def scrape(
     return [r.as_dict() for r in results]
 
 
-def _scroll_feed(page, max_cards: int, throttle: float) -> None:
+def _scroll_feed(
+    page, max_cards: int, scroll_min: float, scroll_max: float, watch_mode: bool = False
+) -> None:
     """Scroll the results feed until it stops growing or enough cards loaded."""
     feed_sel = 'div[role="feed"]'
     last_count = -1
@@ -357,10 +512,14 @@ def _scroll_feed(page, max_cards: int, throttle: float) -> None:
             stagnant = 0
         last_count = count
         try:
-            page.eval_on_selector(
-                feed_sel,
-                "el => el.scrollBy(0, el.scrollHeight)",
-            )
+            if watch_mode:
+                # Smaller incremental scrolls look human; one big jump does not.
+                page.eval_on_selector(feed_sel, "el => el.scrollBy(0, el.clientHeight * 0.8)")
+                # ~15% of the time, nudge back up a touch (real people do this).
+                if random.random() < 0.15:
+                    page.eval_on_selector(feed_sel, "el => el.scrollBy(0, -60)")
+            else:
+                page.eval_on_selector(feed_sel, "el => el.scrollBy(0, el.scrollHeight)")
         except Exception:
             break
-        _human_pause(throttle)
+        _sleep_human(scroll_min, scroll_max)
