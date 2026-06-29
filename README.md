@@ -31,8 +31,36 @@ Then in the browser:
 3. Keep **Filter against master ledger** on so weekly re-runs only surface *new* leads.
 4. **▶ Run scrape** → watch progress → review the sortable results table.
 5. **Download** xlsx (multi-sheet: Leads · Excluded-Dedup · Run summary) or CSV
-   (Qontak-import column order). Files also save to `data/output/`.
-6. **Push to Qontak** — dry-run (logs payloads) until you add credentials.
+   (Qontak-import column order). Files also save to `data/output/`. This is *Bro's*
+   full-pool audit — not what Nathan works.
+6. **Build Nathan's next batch (10)** — releases the top 10 highest-scored fresh leads
+   into the shared Google Sheet. See "Outreach discipline" below.
+7. **Push to Qontak** — dry-run (logs payloads) until you add credentials (Phase 3).
+
+## Outreach discipline (why batches of 10)
+
+Cold-blasting WhatsApp gets the number banned (Tier 1 caps + spam reports tank your
+quality rating). So the system **designs scarcity in**: Nathan never sees the full pool.
+He gets **10 leads at a time**, in a **shared Google Sheet**, and the **gate refuses to
+release the next 10 until the current batch is worked** (every lead moved past `New`).
+Blasting becomes structurally impossible — quality is the only path forward.
+
+- **No-double guarantee:** a lead enters a batch only if its **Google place ID** (stable
+  feature id, never changes) is absent from both the master ledger and the Sheet. The
+  same restaurant cannot reach Nathan twice, even if its phone or name changes.
+- **Each lead carries a `wa.me` click-to-chat link** — Nathan taps straight into the
+  conversation. That tap is your opt-in entry point when you graduate to Qontak.
+- Measure **reply-rate and deals per batch**, never messages sent.
+
+### Google Sheet setup (one-time)
+
+1. In Google Cloud, create a **service account** and download its JSON key.
+2. Save the key as `config/service_account.json` (gitignored).
+3. Create a Google Sheet; copy its id from the URL
+   (`docs.google.com/spreadsheets/d/<THIS>/edit`).
+4. **Share the Sheet with the service account's email** (`…@….iam.gserviceaccount.com`)
+   as **Editor**.
+5. Fill `GSHEETS_CREDENTIALS_FILE` + `GSHEETS_SPREADSHEET_ID` in `config/.env`.
 
 ## Pilot validation (v1)
 
@@ -69,9 +97,11 @@ scraper/categories.py   search-query synonyms per industry bucket
 scraper/areas.py        Jabodetabek kota/kecamatan reference
 enrich/parser.py        address -> kelurahan/kota; phone/website/name normalization
 enrich/scoring.py       store-size estimate (Kecil/Sedang/Besar) — tunable WEIGHTS
-enrich/dedup.py         internal + customer-list + master-ledger dedup
-integrations/qontak.py  OAuth + contact push, gated on config/.env
-output/exporter.py      xlsx (3 sheets) + Qontak-friendly csv
+enrich/dedup.py         place-id-first dedup: internal + customer-list + ledger
+crm/tracker.py          batch gate — release_next_batch (10), completion check
+integrations/gsheets.py gspread wrapper for Nathan's living CRM Sheet
+integrations/qontak.py  OAuth + contact push, gated on config/.env (Phase 3)
+output/exporter.py      xlsx (3 sheets) + Qontak-friendly csv (Bro's audit)
 data/output/            generated lead files
 data/ledger.csv         master ledger of all leads ever surfaced (auto-created)
 ```

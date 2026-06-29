@@ -20,6 +20,8 @@ from enrich.scoring import score_row
 from enrich import dedup as dedup_mod
 from output import exporter
 from integrations import qontak
+from integrations import gsheets
+from crm import tracker as crm_tracker
 
 st.set_page_config(page_title="ROSH Customer Scraper", page_icon="📦", layout="wide")
 
@@ -225,7 +227,58 @@ if "result" in st.session_state:
         with st.expander(f"Excluded / dedup rows ({len(excluded)}) — audit"):
             st.dataframe(pd.DataFrame(excluded), use_container_width=True)
 
-    # Qontak push
+    # ---- Nathan's batch (the quality gate) ----
+    st.subheader("Nathan's next batch")
+    st.caption(
+        f"Releases the top {crm_tracker.DEFAULT_BATCH_SIZE} highest-scored fresh leads to "
+        "the Google Sheet — but only once the current batch is fully worked. "
+        "Quality is enforced by the gate, not requested."
+    )
+    st.write(gsheets.status_message())
+
+    if not gsheets.is_configured():
+        st.info("Add GSHEETS_* keys to `config/.env` (see README) to enable batch release.")
+    else:
+        # Show current batch completion status.
+        try:
+            tracker_df = gsheets.read_tracker(crm_tracker.TRACKER_COLUMNS)
+            complete, unworked = crm_tracker.current_batch_complete(tracker_df)
+            latest = crm_tracker._latest_batch_id(tracker_df)
+            if latest:
+                worked = len(tracker_df[
+                    pd.to_numeric(tracker_df["batch_id"], errors="coerce") == latest
+                ]) - len(unworked)
+                total = worked + len(unworked)
+                st.write(f"**Batch #{latest}:** {worked}/{total} worked"
+                         + (" ✅ ready for next" if complete else " — finish the rest first"))
+                if unworked:
+                    st.dataframe(
+                        pd.DataFrame(unworked)[["name", "status", "phone_normalized"]],
+                        use_container_width=True,
+                    )
+        except Exception as e:
+            st.warning(f"Could not read the Sheet: {e}")
+
+        if st.button(f"📋 Build Nathan's next batch ({crm_tracker.DEFAULT_BATCH_SIZE})",
+                     type="primary", disabled=not leads):
+            res = crm_tracker.release_next_batch(leads)
+            if res["released"]:
+                st.success(res["reason"] + f" Pool left: {res['remaining_pool']}.")
+                st.dataframe(
+                    pd.DataFrame(res["leads"])[
+                        ["name", "store_size", "store_size_score", "phone_normalized", "wa_link", "kelurahan"]
+                    ],
+                    use_container_width=True,
+                )
+            else:
+                st.error(res["reason"])
+                if res["unworked"]:
+                    st.dataframe(
+                        pd.DataFrame(res["unworked"])[["name", "status", "phone_normalized"]],
+                        use_container_width=True,
+                    )
+
+    # Qontak push (Phase 3 — graduate the Sheet pipeline into Qontak)
     st.subheader("Push to Qontak")
     st.caption(
         "Pushes the leads above. Without credentials this is a dry-run that logs "

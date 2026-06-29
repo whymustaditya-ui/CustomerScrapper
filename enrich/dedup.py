@@ -32,22 +32,37 @@ def _fuzzy_equal(a: str, b: str) -> bool:
     return SequenceMatcher(None, a, b).ratio() >= _FUZZY_NAME_THRESHOLD
 
 
-def _row_identity(row: dict) -> tuple[str, str]:
-    """A stable identity key: (normalized phone, name+kelurahan)."""
+def _row_identity(row: dict) -> tuple[str, str, str]:
+    """Stable identity, strongest-first: (place_id, phone, name+kelurahan).
+
+    place_id is Google's feature/CID hex — it never changes for a location, so
+    it's the primary no-double key. phone and name+kelurahan are fallbacks for
+    the rare listing without a parseable place_id.
+    """
+    place_id = (row.get("place_id") or "").strip().lower()
     phone = row.get("phone_normalized") or normalize_phone(row.get("phone", ""))
     name_kel = f"{_name_key(row.get('name', ''))}|{(row.get('kelurahan') or '').lower()}"
-    return phone, name_kel
+    return place_id, phone, name_kel
+
+
+def identity_key(row: dict) -> str:
+    """The single best canonical key for a row: place_id, else phone, else name+kel."""
+    place_id, phone, name_kel = _row_identity(row)
+    return place_id or phone or name_kel
 
 
 def internal_dedup(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     """Collapse duplicates within the run. Returns (unique_rows, dropped_rows)."""
+    seen_pid: set[str] = set()
     seen_phones: set[str] = set()
     seen_namekel: set[str] = set()
     unique, dropped = [], []
     for row in rows:
-        phone, name_kel = _row_identity(row)
+        place_id, phone, name_kel = _row_identity(row)
         is_dup = False
-        if phone and phone in seen_phones:
+        if place_id and place_id in seen_pid:
+            is_dup = True
+        elif phone and phone in seen_phones:
             is_dup = True
         elif name_kel and name_kel in seen_namekel:
             is_dup = True
@@ -56,6 +71,8 @@ def internal_dedup(rows: list[dict]) -> tuple[list[dict], list[dict]]:
             r["exclude_reason"] = "internal duplicate"
             dropped.append(r)
         else:
+            if place_id:
+                seen_pid.add(place_id)
             if phone:
                 seen_phones.add(phone)
             if name_kel:
@@ -115,13 +132,14 @@ def dedup_customers(
 
 
 def filter_against_ledger(
-    rows: list[dict], ledger_path: str = LEDGER_PATH
+    rows: list[dict], ledger_path: str | None = None
 ) -> tuple[list[dict], list[dict]]:
     """Exclude rows already present in the master ledger from previous runs.
 
     Returns (new_rows, already_seen_rows). The ledger makes weekly re-runs only
-    surface genuinely new leads.
+    surface genuinely new leads. Path resolves at call time so it stays overridable.
     """
+    ledger_path = ledger_path or LEDGER_PATH
     if not os.path.exists(ledger_path):
         return rows, []
     try:
@@ -129,13 +147,18 @@ def filter_against_ledger(
     except Exception:
         return rows, []
 
-    seen_phones = set(ledger.get("phone_normalized", pd.Series(dtype=str)).tolist())
+    seen_pid = set(p for p in ledger.get("place_id", pd.Series(dtype=str)).tolist() if p)
+    seen_phones = set(p for p in ledger.get("phone_normalized", pd.Series(dtype=str)).tolist() if p)
     seen_keys = set(ledger.get("identity_key", pd.Series(dtype=str)).tolist())
 
     new_rows, seen_rows = [], []
     for row in rows:
-        phone, name_kel = _row_identity(row)
-        if (phone and phone in seen_phones) or (name_kel and name_kel in seen_keys):
+        place_id, phone, name_kel = _row_identity(row)
+        if (
+            (place_id and place_id in seen_pid)
+            or (phone and phone in seen_phones)
+            or (name_kel and name_kel in seen_keys)
+        ):
             r = dict(row)
             r["exclude_reason"] = "already in ledger (seen in a prior run)"
             seen_rows.append(r)
@@ -144,16 +167,18 @@ def filter_against_ledger(
     return new_rows, seen_rows
 
 
-def append_to_ledger(rows: list[dict], ledger_path: str = LEDGER_PATH) -> None:
+def append_to_ledger(rows: list[dict], ledger_path: str | None = None) -> None:
     """Append accepted leads to the master ledger for future idempotent runs."""
+    ledger_path = ledger_path or LEDGER_PATH
     if not rows:
         return
     os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
     records = []
     for row in rows:
-        phone, name_kel = _row_identity(row)
+        place_id, phone, name_kel = _row_identity(row)
         records.append({
             "name": row.get("name", ""),
+            "place_id": place_id,
             "phone_normalized": phone,
             "identity_key": name_kel,
             "kota": row.get("kota", ""),

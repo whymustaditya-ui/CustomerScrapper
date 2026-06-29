@@ -1,0 +1,155 @@
+"""CRM batch gate, backed by the living Google Sheet.
+
+The discipline, enforced in code: Nathan gets leads in batches of 10, and a new
+batch is only released once the current one is *worked* (every lead moved past
+`New`). This makes blasting structurally impossible — you can't get batch N+1
+until batch N is handled. Quality is enforced by the system, not requested.
+
+No-double guarantee: a lead enters a batch only if its identity (place_id first,
+per enrich/dedup) is absent from BOTH the Sheet and the master ledger.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+import pandas as pd
+
+from enrich import dedup as dedup_mod
+from integrations import gsheets
+
+# Order of columns written to the Sheet. Workflow fields first (what Nathan touches),
+# then lead data, then the dedup key.
+TRACKER_COLUMNS = [
+    "batch_id", "date_added", "status", "owner", "next_action_date", "notes",
+    "name", "industry", "store_size", "store_size_score",
+    "phone_normalized", "wa_link", "website_canonical",
+    "kelurahan", "kota", "address", "place_id",
+]
+
+# A lead is "worked" once it has moved off New (≥ Contacted).
+STATUS_NEW = "New"
+WORKED_STATUSES = {"Contacted", "Replied", "Quoted", "Won", "Lost"}
+
+DEFAULT_BATCH_SIZE = 10
+
+
+def build_wa_link(phone_normalized: str) -> str:
+    """wa.me click-to-chat link from a +62 number (digits only, no +)."""
+    digits = "".join(ch for ch in (phone_normalized or "") if ch.isdigit())
+    return f"https://wa.me/{digits}" if digits else ""
+
+
+def _is_worked(status: str) -> bool:
+    return (status or "").strip() in WORKED_STATUSES
+
+
+def _existing_keys(tracker: pd.DataFrame) -> tuple[set, set, set]:
+    """Identity sets already present in the Sheet: (place_ids, phones, name_kels)."""
+    if tracker.empty:
+        return set(), set(), set()
+    pids, phones, namekels = set(), set(), set()
+    for _, r in tracker.iterrows():
+        row = r.to_dict()
+        pid, phone, name_kel = dedup_mod._row_identity(row)
+        if pid:
+            pids.add(pid)
+        if phone:
+            phones.add(phone)
+        if name_kel:
+            namekels.add(name_kel)
+    return pids, phones, namekels
+
+
+def _latest_batch_id(tracker: pd.DataFrame) -> int:
+    if tracker.empty or "batch_id" not in tracker.columns:
+        return 0
+    ids = pd.to_numeric(tracker["batch_id"], errors="coerce").dropna()
+    return int(ids.max()) if not ids.empty else 0
+
+
+def current_batch_complete(tracker: pd.DataFrame) -> tuple[bool, list[dict]]:
+    """Is the latest batch fully worked? Returns (complete, unworked_rows)."""
+    latest = _latest_batch_id(tracker)
+    if latest == 0:
+        return True, []  # no batch yet -> free to release the first
+    batch = tracker[pd.to_numeric(tracker["batch_id"], errors="coerce") == latest]
+    unworked = [r.to_dict() for _, r in batch.iterrows() if not _is_worked(r.get("status", ""))]
+    return (len(unworked) == 0), unworked
+
+
+def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict:
+    """The gate. Release the next `size` highest-scored fresh leads — or refuse.
+
+    Returns a result dict:
+      {released: bool, reason: str, batch_id: int|None,
+       leads: list[dict], unworked: list[dict], remaining_pool: int}
+    """
+    tracker = gsheets.read_tracker(TRACKER_COLUMNS)
+
+    complete, unworked = current_batch_complete(tracker)
+    if not complete:
+        return {
+            "released": False,
+            "reason": f"Current batch not finished — {len(unworked)} lead(s) still 'New'. "
+                      "Work them in the Sheet before pulling the next 10.",
+            "batch_id": _latest_batch_id(tracker),
+            "leads": [],
+            "unworked": unworked,
+            "remaining_pool": 0,
+        }
+
+    # Defensive internal dedup first — never let two rows for the same place share
+    # a batch, even if the caller passed a pool that wasn't pre-deduped.
+    pool, _internal_dropped = dedup_mod.internal_dedup(pool)
+
+    # Filter the scored pool against the Sheet (and the ledger as belt-and-suspenders).
+    pids, phones, namekels = _existing_keys(tracker)
+    fresh = []
+    for row in pool:
+        pid, phone, name_kel = dedup_mod._row_identity(row)
+        if pid and pid in pids:
+            continue
+        if phone and phone in phones:
+            continue
+        if name_kel and name_kel in namekels:
+            continue
+        fresh.append(row)
+    fresh, _ledger_seen = dedup_mod.filter_against_ledger(fresh)
+
+    if not fresh:
+        return {
+            "released": False,
+            "reason": "No fresh leads left in the pool — scrape more, or widen the area.",
+            "batch_id": _latest_batch_id(tracker),
+            "leads": [], "unworked": [], "remaining_pool": 0,
+        }
+
+    fresh.sort(key=lambda r: r.get("store_size_score") or 0, reverse=True)
+    chosen = fresh[:size]
+
+    new_batch_id = _latest_batch_id(tracker) + 1
+    today = date.today().isoformat()
+    batch_rows = []
+    for r in chosen:
+        row = dict(r)
+        row["batch_id"] = new_batch_id
+        row["date_added"] = today
+        row["status"] = STATUS_NEW
+        row["owner"] = row.get("owner", "Nathan")
+        row["next_action_date"] = ""
+        row["notes"] = ""
+        row["wa_link"] = build_wa_link(row.get("phone_normalized", ""))
+        batch_rows.append(row)
+
+    gsheets.append_rows(batch_rows, TRACKER_COLUMNS)
+    dedup_mod.append_to_ledger(chosen)
+
+    return {
+        "released": True,
+        "reason": f"Released batch #{new_batch_id} — {len(batch_rows)} leads to the Sheet.",
+        "batch_id": new_batch_id,
+        "leads": batch_rows,
+        "unworked": [],
+        "remaining_pool": len(fresh) - len(chosen),
+    }

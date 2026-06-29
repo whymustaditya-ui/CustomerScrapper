@@ -16,6 +16,7 @@ Design notes / honest caveats:
 from __future__ import annotations
 
 import random
+import re
 import time
 from dataclasses import dataclass, field, asdict
 from typing import Callable, Iterable, Optional
@@ -48,6 +49,7 @@ class Place:
     photo_count: Optional[int] = None
     plus_code: str = ""
     place_url: str = ""
+    place_id: str = ""
     query_area: str = ""
     skipped_fields: list = field(default_factory=list)
 
@@ -113,6 +115,31 @@ def _parse_float(s: str) -> Optional[float]:
         return float(buf) if buf else None
     except ValueError:
         return None
+
+
+def extract_place_id(url: str) -> str:
+    """Extract Google's stable place identity from a Maps URL.
+
+    The canonical feature/CID id is a hex pair like `0x2e69f...:0x8a3b...` that
+    appears after `!1s` in the URL and never changes for a location — the gold
+    standard dedup key. Falls back to the `!19s` ChIJ-style token, then to the
+    `/place/<slug>/` path segment so we always return *something* stable-ish.
+    """
+    if not url:
+        return ""
+    # Primary: the 0x..:0x.. feature id (most stable).
+    m = re.search(r"(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)", url)
+    if m:
+        return m.group(1).lower()
+    # Secondary: ChIJ-style place id token after !19s or place_id=.
+    m = re.search(r"!19s([A-Za-z0-9_\-]+)", url) or re.search(r"place_id[=:]([A-Za-z0-9_\-]+)", url)
+    if m:
+        return m.group(1)
+    # Tertiary: the place slug in the path.
+    m = re.search(r"/place/([^/@]+)", url)
+    if m:
+        return "slug:" + m.group(1).lower()
+    return ""
 
 
 def _dismiss_consent(page) -> None:
@@ -183,6 +210,12 @@ def _extract_detail(page, place: Place) -> Place:
     if price_txt:
         dollars = price_txt.count("$")
         place.price_level = "$" * dollars if dollars else price_txt.strip()
+
+    # Stable Google identity: the feature/CID hex pair in the canonical URL.
+    # Prefer the live page URL (richer after navigation), fall back to the link.
+    place.place_id = extract_place_id(page.url) or extract_place_id(place.place_url)
+    if not place.place_id:
+        place.skipped_fields.append("place_id")
 
     return place
 

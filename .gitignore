@@ -1,5 +1,7 @@
 # Secrets
 config/.env
+config/service_account.json
+config/*.json
 
 # Generated data
 data/output/*

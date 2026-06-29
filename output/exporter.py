@@ -19,7 +19,7 @@ LEAD_COLUMNS = [
     "name", "industry", "gmaps_category", "store_size", "store_size_score",
     "phone_normalized", "website_canonical", "kelurahan", "kota",
     "address", "rating", "review_count", "price_level", "photo_count",
-    "parse_confidence", "matched_term", "query_area", "place_url",
+    "parse_confidence", "matched_term", "query_area", "place_id", "place_url",
     "skipped_fields",
 ]
 
