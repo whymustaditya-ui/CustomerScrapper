@@ -12,6 +12,7 @@ All weights live in one dict so Bro can adjust without touching logic.
 from __future__ import annotations
 
 import math
+import re
 
 # Tunable. Each component contributes 0..1, multiplied by its weight; the
 # weighted sum is rescaled to 0..100. Adjust freely after the pilot.
@@ -36,13 +37,48 @@ def _review_component(review_count) -> float:
     return min(1.0, math.log10(review_count + 1) / 3.0)
 
 
+_RP_NUM_RE = re.compile(r"(\d[\d.,]*)\s*(rb|ribu|k|jt|juta)?", re.IGNORECASE)
+
+
+def _max_rupiah(text: str) -> int:
+    """Largest rupiah amount in a price string, normalizing rb/ribu/k/jt/juta units."""
+    best = 0
+    for m in _RP_NUM_RE.finditer(text):
+        raw = m.group(1).replace(".", "").replace(",", "")
+        if not raw.isdigit():
+            continue
+        val = int(raw)
+        unit = (m.group(2) or "").lower()
+        if unit in ("rb", "ribu", "k"):
+            val *= 1_000
+        elif unit in ("jt", "juta"):
+            val *= 1_000_000
+        best = max(best, val)
+    return best
+
+
 def _price_component(price_level: str) -> float:
+    """Price tier signal, 0..1. Handles both "$" symbols and Indonesian "Rp" ranges.
+
+    GMaps in Indonesia usually shows a rupiah range (e.g. "Rp 25.000, 50.000" or
+    "Rp 50, 100 rb") instead of "$$", so counting "$" alone scored most local
+    listings at 0. We parse the rupiah upper bound and bucket it into tiers.
+    """
     if not price_level:
         return 0.0
     dollars = price_level.count("$")
     if dollars:
         return min(1.0, dollars / 4.0)
-    return 0.0
+    rupiah = _max_rupiah(price_level)
+    if rupiah <= 0:
+        return 0.0
+    if rupiah < 25_000:
+        return 0.25
+    if rupiah < 50_000:
+        return 0.50
+    if rupiah < 100_000:
+        return 0.75
+    return 1.0
 
 
 def _rating_component(rating) -> float:

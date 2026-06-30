@@ -336,6 +336,7 @@ if "result" in st.session_state:
                      type="primary", disabled=not leads):
             res = crm_tracker.release_next_batch(leads)
             if res["released"]:
+                st.session_state["last_batch"] = res["leads"]
                 st.success(res["reason"] + f" Pool left: {res['remaining_pool']}.")
                 st.dataframe(
                     pd.DataFrame(res["leads"])[
@@ -352,14 +353,18 @@ if "result" in st.session_state:
                         use_container_width=True,
                     )
 
-    # Qontak push (Phase 3 — graduate the Sheet pipeline into Qontak)
+    # Qontak push (Phase 3, graduate the Sheet pipeline into Qontak)
     st.subheader("Push to Qontak")
+    last_batch = st.session_state.get("last_batch", [])
     st.caption(
-        "Pushes the leads above. Without credentials this is a dry-run that logs "
-        "the exact payloads to the console."
+        "Pushes ONLY the most recently released batch (the disciplined 10), never the "
+        "full pool, so the same gate that protects the Sheet protects Qontak. Without "
+        "credentials this is a dry-run that logs the exact payloads to the console."
     )
-    if st.button("📤 Push approved batch to Qontak", disabled=not leads):
-        res = qontak.push_contacts(leads)
+    if not last_batch:
+        st.info("No released batch yet. Build a batch above first, then push that batch here.")
+    elif st.button(f"📤 Push released batch ({len(last_batch)}) to Qontak"):
+        res = qontak.push_contacts(last_batch)
         if res["mode"] == "dry-run":
             st.info(f"Dry-run: logged {res['logged']} payloads (no credentials). "
                     "Check the terminal for the JSON payloads.")

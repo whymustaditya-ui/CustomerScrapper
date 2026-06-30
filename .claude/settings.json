@@ -10,7 +10,11 @@
       "Bash(python -c 'import os; print\\('\\\\''dirname of ledger.csv ='\\\\'', repr\\(os.path.dirname\\('\\\\''ledger.csv'\\\\''\\)\\)\\); *)",
       "Bash(git status *)",
       "PowerShell(Start-Process \"2026-06-30_GUIDE_Sales-Qontak-Pipeline.html\")",
-      "PowerShell(\"opened\")"
+      "PowerShell(\"opened\")",
+      "Bash(git ls-files *)",
+      "Bash(grep -iE \"\\\\.env$|service_account|credentials|\\\\.json$|ledger\\\\.csv|secret\")",
+      "Bash(python -m py_compile app.py enrich/scoring.py)",
+      "Bash(python -c \"from enrich.scoring import _price_component as p; print\\('Rp 25.000-50.000 ->', p\\('Rp 25.000-50.000'\\)\\); print\\('Rp 50-100 rb ->', p\\('Rp 50-100 rb'\\)\\); print\\('\\\\$\\\\$ ->', p\\('\\\\$\\\\$'\\)\\); print\\('empty ->', p\\(''\\)\\); print\\('Rp 1jt-2jt ->', p\\('Rp 1jt-2jt'\\)\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\958632183\\Downloads\\#Important\\OneDrive - Kemenkeu\\Cowork OS"
