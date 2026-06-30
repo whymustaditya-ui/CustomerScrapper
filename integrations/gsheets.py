@@ -147,6 +147,52 @@ def overwrite_tracker(rows: list[dict], columns: list[str], header_row: list[str
     return len(rows)
 
 
+def set_validations(rules: list[dict], data_rows: int = 1000) -> int:
+    """Apply data-validation (dropdowns / date pickers) to whole columns.
+
+    Each rule is a dict:
+        {"col": int,              # 0-based column index
+         "kind": "list" | "date",
+         "values": list[str],     # options, for kind == "list"
+         "strict": bool}          # True rejects off-list input; False just warns
+
+    Validation covers rows 2..(data_rows+1) so newly appended rows inherit it.
+    Returns the number of column rules applied.
+    """
+    if not rules:
+        return 0
+    ws = _worksheet()
+    sheet_id = ws.id
+    requests = []
+    for rule in rules:
+        if rule.get("kind") == "date":
+            condition = {"type": "DATE_IS_VALID"}
+        else:
+            condition = {
+                "type": "ONE_OF_LIST",
+                "values": [{"userEnteredValue": v} for v in rule.get("values", [])],
+            }
+        col = rule["col"]
+        requests.append({
+            "setDataValidation": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 1,
+                    "endRowIndex": data_rows + 1,
+                    "startColumnIndex": col,
+                    "endColumnIndex": col + 1,
+                },
+                "rule": {
+                    "condition": condition,
+                    "strict": bool(rule.get("strict", False)),
+                    "showCustomUi": True,
+                },
+            }
+        })
+    ws.spreadsheet.batch_update({"requests": requests})
+    return len(requests)
+
+
 def _cell(v) -> str:
     if v is None:
         return ""

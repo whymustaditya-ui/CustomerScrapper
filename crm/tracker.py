@@ -18,7 +18,11 @@ from urllib.parse import quote_plus
 import pandas as pd
 
 from enrich import dedup as dedup_mod
+from enrich.parser import sanitize_text
 from integrations import gsheets
+
+# Free-text fields that may carry leaked icon-font glyphs from old scrapes.
+_TEXT_FIELDS = ("name", "industry", "store_size", "address", "kelurahan", "notes")
 
 # Order of columns written to the Sheet. Workflow fields first (what Sales touches),
 # then lead data, then the dedup key. `maps_link` is intentionally kept LAST so that
@@ -57,9 +61,27 @@ TRACKER_HEADERS = {
 }
 TRACKER_HEADER_ROW = [TRACKER_HEADERS[c] for c in TRACKER_COLUMNS]
 
-# A lead is "worked" once it has moved off New (≥ Contacted).
-STATUS_NEW = "New"
-WORKED_STATUSES = {"Contacted", "Replied", "Quoted", "Won", "Lost"}
+# Pipeline stages, in order. The first ("New") means untouched; everything after
+# counts as "worked" by the batch gate. Single source of truth for the Status
+# dropdown written to the Sheet, so the options can never drift from the logic.
+STATUS_OPTIONS = ["New", "Contacted", "Replied", "Quoted", "Won", "Lost"]
+STATUS_NEW = STATUS_OPTIONS[0]
+WORKED_STATUSES = set(STATUS_OPTIONS[1:])
+
+# Suggested quick-notes for the Catatan dropdown. Non-strict — Sales can still
+# type anything; these just speed up the common dispositions.
+NOTE_OPTIONS = [
+    "Tidak diangkat",
+    "Nomor salah / tidak aktif",
+    "Minta dihubungi lagi",
+    "Kirim penawaran",
+    "Sudah dikirim sampel",
+    "Nego harga",
+    "Sudah punya supplier",
+    "Tertarik, lanjut follow-up",
+    "Tidak berminat",
+    "Closing",
+]
 
 DEFAULT_BATCH_SIZE = 10
 
@@ -216,6 +238,22 @@ def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict
     }
 
 
+def apply_dropdowns() -> int:
+    """Add Sheet dropdowns: Status (strict), Tgl Follow-up (date picker),
+    Catatan (suggested notes, free text still allowed). Idempotent — safe to
+    re-run. Returns the number of columns given a validation rule.
+    """
+    rules = [
+        {"col": TRACKER_COLUMNS.index("status"),
+         "kind": "list", "values": STATUS_OPTIONS, "strict": True},
+        {"col": TRACKER_COLUMNS.index("next_action_date"),
+         "kind": "date", "strict": False},
+        {"col": TRACKER_COLUMNS.index("notes"),
+         "kind": "list", "values": NOTE_OPTIONS, "strict": False},
+    ]
+    return gsheets.set_validations(rules)
+
+
 def repair_sheet_layout() -> dict:
     """One-click tidy-up for an existing Sheet: friendly headers + Maps links.
 
@@ -228,6 +266,10 @@ def repair_sheet_layout() -> dict:
     rows = df.to_dict("records") if not df.empty else []
     filled = 0
     for r in rows:
+        # Scrub leaked icon glyphs (tofu ▯) from rows written by older scrapes.
+        for field in _TEXT_FIELDS:
+            if field in r:
+                r[field] = sanitize_text(str(r.get(field, "") or ""))
         if not str(r.get("maps_link", "") or "").strip():
             link = build_maps_link(r)
             if link:

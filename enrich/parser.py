@@ -16,6 +16,25 @@ import re
 
 from scraper.areas import KECAMATAN_TO_KOTA
 
+
+def _is_icon_glyph(codepoint: int) -> bool:
+    """Private Use Area — where icon fonts (e.g. Google Maps' Material Icons)
+    live. These have no glyph in normal fonts, so Sheets/Excel show tofu (▯)."""
+    return (
+        0xE000 <= codepoint <= 0xF8FF        # BMP PUA (Maps' "place" pin = U+E0C8)
+        or 0xF0000 <= codepoint <= 0xFFFFD   # Supplementary PUA-A
+        or 0x100000 <= codepoint <= 0x10FFFD  # Supplementary PUA-B
+    )
+
+
+def sanitize_text(value: str) -> str:
+    """Drop icon-font/PUA glyphs leaked from scraped DOM, collapse whitespace."""
+    if not value:
+        return ""
+    stripped = "".join(ch for ch in value if not _is_icon_glyph(ord(ch)))
+    return re.sub(r"\s+", " ", stripped).strip()
+
+
 _KOTA_RE = re.compile(r"\b(kota|kabupaten|kab\.?)\s+([a-z ]+)", re.IGNORECASE)
 _POSTCODE_RE = re.compile(r"\b\d{5}\b")
 _RTRW_RE = re.compile(r"\brt\.?\s*\d+", re.IGNORECASE)
@@ -147,8 +166,13 @@ def normalize_name(name: str) -> str:
 def enrich_row(row: dict) -> dict:
     """Apply all normalizations to a scraped place dict, returning a new dict."""
     out = dict(row)
-    out["name"] = normalize_name(row.get("name", ""))
-    parsed = parse_address(row.get("address", ""))
+    # Scrub icon-font/PUA glyphs (e.g. Maps' pin U+E0C8) from every free-text
+    # field before anything downstream parses, dedups, or writes it to a Sheet.
+    for field in ("name", "address", "industry", "gmaps_category", "store_size"):
+        if field in out:
+            out[field] = sanitize_text(out.get(field, ""))
+    out["name"] = normalize_name(out.get("name", ""))
+    parsed = parse_address(out.get("address", ""))
     out.update(parsed)
     # WA-only: keep mobile (+628…) as the contact number; park landlines (021, etc.)
     # in phone_landline so they're auditable but never used for WA outreach.

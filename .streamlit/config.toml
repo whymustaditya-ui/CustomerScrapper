@@ -1,0 +1,11 @@
+# Streamlit theme for the ROSH Super Customer Scraper.
+# Backs up the injected CSS so colours are right before the stylesheet loads.
+[theme]
+base = "light"
+primaryColor = "#12B886"
+backgroundColor = "#F6F8FB"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F172A"
+
+[browser]
+gatherUsageStats = false

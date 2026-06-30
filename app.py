@@ -22,17 +22,13 @@ from output import exporter
 from integrations import qontak
 from integrations import gsheets
 from crm import tracker as crm_tracker
+from ui import theme
 
 st.set_page_config(page_title="ROSH Customer Scraper", page_icon="📦", layout="wide")
 
-st.title("📦 ROSH Super Customer Scraper")
-st.caption("Google Maps B2B lead-gen for ROSH packaging — Thinwall & Cup Oz.")
-
-st.warning(
-    "⚠️ **Do not run on MoF / DJP network.** GMaps scraping breaches Google ToS and "
-    "risks IP blocks — run from a personal/business connection only. Keep volume modest.",
-    icon="⚠️",
-)
+theme.apply_theme()
+theme.hero()
+theme.network_warning()
 
 # ---------------------------------------------------------------- sidebar
 with st.sidebar:
@@ -103,6 +99,16 @@ with st.sidebar:
                            f"{rep['maps_links_filled']} link Maps ditambahkan.")
             except Exception as e:
                 st.error(f"Gagal merapikan Sheet: {e}")
+        if st.button("🔽 Pasang dropdown (Status, Follow-up, Catatan)",
+                     use_container_width=True,
+                     help="Status jadi pilihan tetap, Tgl Follow-up jadi date-picker "
+                          "kalender, dan Catatan dapat saran cepat (tetap bisa ketik "
+                          "bebas). Aman diklik berulang."):
+            try:
+                n = crm_tracker.apply_dropdowns()
+                st.success(f"Dropdown terpasang di {n} kolom — refresh Sheet untuk lihat.")
+            except Exception as e:
+                st.error(f"Gagal memasang dropdown: {e}")
     else:
         st.caption("🔒 Sheet belum dikonfigurasi (lihat README).")
 
@@ -372,3 +378,5 @@ if "result" in st.session_state:
             st.success(f"Live push: {res['sent']} sent, {res['failed']} failed.")
         for m in res["messages"]:
             st.write("•", m)
+
+theme.footer()
