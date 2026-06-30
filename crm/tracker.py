@@ -1,6 +1,6 @@
 """CRM batch gate, backed by the living Google Sheet.
 
-The discipline, enforced in code: Sales gets leads in batches of 10, and a new
+The discipline, enforced in code: Nathan gets leads in batches of 10, and a new
 batch is only released once the current one is *worked* (every lead moved past
 `New`). This makes blasting structurally impossible — you can't get batch N+1
 until batch N is handled. Quality is enforced by the system, not requested.
@@ -20,7 +20,7 @@ import pandas as pd
 from enrich import dedup as dedup_mod
 from integrations import gsheets
 
-# Order of columns written to the Sheet. Workflow fields first (what Sales touches),
+# Order of columns written to the Sheet. Workflow fields first (what Nathan touches),
 # then lead data, then the dedup key. `maps_link` is intentionally kept LAST so that
 # adding it never shifts the existing columns of a live Sheet — old rows just get a
 # blank trailing cell until the layout repair backfills them.
@@ -196,7 +196,7 @@ def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict
         row["batch_id"] = new_batch_id
         row["date_added"] = today
         row["status"] = STATUS_NEW
-        row["owner"] = row.get("owner", "Sales")
+        row["owner"] = row.get("owner", "Nathan")
         row["next_action_date"] = ""
         row["notes"] = ""
         row["wa_link"] = build_wa_link(row.get("phone_normalized", ""))

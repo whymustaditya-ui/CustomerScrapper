@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(python -m playwright install chromium)",
-      "Bash(echo \"EXIT $?\")"
+      "Bash(echo \"EXIT $?\")",
+      "Bash(git fsck *)",
+      "Bash(git ls-remote *)",
+      "Bash(git hash-object *)",
+      "Bash(git fetch *)"
     ]
   }
 }
