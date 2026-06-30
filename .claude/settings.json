@@ -8,7 +8,12 @@
       "Bash(git hash-object *)",
       "Bash(git fetch *)",
       "Bash(python -c 'import os; print\\('\\\\''dirname of ledger.csv ='\\\\'', repr\\(os.path.dirname\\('\\\\''ledger.csv'\\\\''\\)\\)\\); *)",
-      "Bash(git status *)"
+      "Bash(git status *)",
+      "PowerShell(Start-Process \"2026-06-30_GUIDE_Sales-Qontak-Pipeline.html\")",
+      "PowerShell(\"opened\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\958632183\\Downloads\\#Important\\OneDrive - Kemenkeu\\Cowork OS"
     ]
   }
 }

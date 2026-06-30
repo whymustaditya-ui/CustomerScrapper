@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panduan Sales ROSH, Scraper, Qontak CRM &amp; Pipeline</title>
+<style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    color:#1f2937; background:#fafafa; margin:0; line-height:1.6}
+  .wrap{max-width:940px; margin:0 auto; padding:0 22px 90px}
+
+  nav{position:sticky; top:0; z-index:50; background:rgba(255,255,255,.92);
+    backdrop-filter:blur(8px); border-bottom:1px solid #e5e7eb; margin-bottom:24px}
+  nav .inner{max-width:940px; margin:0 auto; display:flex; gap:6px; overflow-x:auto; padding:10px 16px}
+  nav a{white-space:nowrap; text-decoration:none; color:#6b7280; font-size:.86rem; font-weight:600;
+    padding:6px 12px; border-radius:999px}
+  nav a:hover{background:#fff7ed; color:#ea580c}
+
+  header.hero{background:linear-gradient(135deg,#f97316,#f59e0b); color:#fff;
+    border-radius:18px; padding:30px 28px; margin:18px 0 8px; box-shadow:0 10px 30px rgba(249,115,22,.25)}
+  header.hero h1{margin:0 0 6px; font-size:1.65rem}
+  header.hero p{margin:0; opacity:.95}
+  .pill{display:inline-block; background:rgba(255,255,255,.2); padding:3px 12px;
+    border-radius:999px; font-size:.78rem; font-weight:600; margin-bottom:12px}
+
+  h2{font-size:1.25rem; margin:36px 0 12px; padding-bottom:8px;
+    border-bottom:2px solid #f97316; display:flex; align-items:center; gap:10px; scroll-margin-top:64px}
+  h2 .n{background:#f97316; color:#fff; width:28px; height:28px; border-radius:8px;
+    display:inline-flex; align-items:center; justify-content:center; font-size:.95rem; flex:0 0 auto}
+  h3{font-size:1.02rem; margin:20px 0 8px; color:#ea580c}
+  p{margin:8px 0}
+  .lead{font-size:1.04rem; color:#6b7280}
+
+  .card{background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:18px 20px; margin:14px 0}
+  table{width:100%; border-collapse:collapse; margin:12px 0; font-size:.92rem; background:#fff;
+    border:1px solid #e5e7eb; border-radius:12px; overflow:hidden}
+  th,td{text-align:left; padding:10px 12px; border-bottom:1px solid #e5e7eb; vertical-align:top}
+  th{background:#fff7ed; color:#ea580c; font-weight:700}
+  tr:last-child td{border-bottom:none}
+
+  .flow{display:flex; flex-wrap:wrap; gap:8px; margin:14px 0}
+  .flow .step{flex:1 1 150px; background:#fff; border:1px solid #e5e7eb; border-radius:12px;
+    padding:12px; text-align:center; font-size:.86rem}
+  .flow .step b{display:block; color:#ea580c; margin-bottom:4px}
+  .flow .arrow{display:flex; align-items:center; color:#f97316; font-size:1.4rem; font-weight:700}
+
+  details.acc{background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:0; margin:10px 0}
+  details.acc summary{cursor:pointer; padding:14px 18px; font-weight:700; color:#ea580c; list-style:none}
+  details.acc summary::-webkit-details-marker{display:none}
+  details.acc summary::before{content:"\25B8  "; color:#f97316; font-weight:800}
+  details.acc[open] summary::before{content:"\25BE  "}
+  details.acc .body{padding:0 18px 16px}
+
+  .kanban{display:flex; gap:10px; overflow-x:auto; padding:6px 2px 14px}
+  .col{flex:0 0 150px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:10px;
+    cursor:pointer; transition:transform .12s, box-shadow .12s}
+  .col:hover{transform:translateY(-3px); box-shadow:0 8px 18px rgba(0,0,0,.08)}
+  .col.active{outline:3px solid #f97316}
+  .col .head{font-weight:700; font-size:.82rem; color:#fff; border-radius:8px; padding:5px 8px;
+    text-align:center; margin-bottom:8px}
+  .deal{background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:7px 8px;
+    font-size:.76rem; margin-bottom:6px}
+  .deal b{display:block; font-size:.8rem}
+  #stageDetail{background:#fff7ed; border:1px solid #fed7aa; border-radius:12px; padding:16px 18px;
+    margin-top:8px; min-height:64px}
+  #stageDetail h4{margin:0 0 6px; color:#ea580c}
+
+  .chat{max-width:560px}
+  .tmpl{background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px 16px; margin:12px 0}
+  .bubble{background:#dcf8c6; border-radius:12px 12px 12px 2px; padding:10px 14px; font-size:.92rem; display:block}
+  .bubble.them{background:#fff; border:1px solid #e5e7eb; border-radius:12px 12px 2px 12px; display:inline-block}
+  .copybtn{margin-top:10px; background:#f97316; color:#fff; border:none; border-radius:8px;
+    padding:8px 14px; font-weight:700; cursor:pointer; font-size:.85rem}
+  .copybtn:hover{background:#ea580c}
+  .copybtn.ok{background:#16a34a}
+
+  .checklist{list-style:none; padding:0; margin:6px 0}
+  .checklist li{background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:10px 14px;
+    margin-bottom:8px; display:flex; gap:10px; align-items:flex-start}
+  .checklist input{margin-top:5px; width:18px; height:18px; accent-color:#f97316; cursor:pointer}
+  .checklist label{cursor:pointer}
+  .checklist li.done label{text-decoration:line-through; color:#9ca3af}
+  .progress{height:10px; background:#e5e7eb; border-radius:999px; overflow:hidden; margin:8px 0}
+  .progress > div{height:100%; width:0; background:linear-gradient(90deg,#f97316,#f59e0b); transition:width .25s}
+
+  .timeline{border-left:3px solid #f97316; margin:14px 0; padding-left:18px}
+  .timeline .t{position:relative; margin-bottom:14px}
+  .timeline .t::before{content:""; position:absolute; left:-25px; top:5px; width:11px; height:11px;
+    border-radius:50%; background:#f97316; border:2px solid #fff; box-shadow:0 0 0 2px #f97316}
+  .timeline .t .when{font-weight:700; color:#ea580c; font-size:.85rem}
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  .do{border-left:4px solid #16a34a} .dont{border-left:4px solid #dc2626}
+  .do h3{color:#16a34a} .dont h3{color:#dc2626}
+  ul{margin:6px 0; padding-left:20px} li{margin:4px 0}
+  .tag{display:inline-block; font-size:.72rem; font-weight:700; padding:2px 8px; border-radius:999px}
+
+  .quiz .q{background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px 18px; margin:12px 0}
+  .quiz .q p{font-weight:700; margin:0 0 10px}
+  .quiz .opt{display:block; padding:8px 12px; border:1px solid #e5e7eb; border-radius:8px;
+    margin:6px 0; cursor:pointer}
+  .quiz .opt:hover{background:#f9fafb}
+  .quiz .opt.correct{background:#dcfce7; border-color:#16a34a}
+  .quiz .opt.wrong{background:#fee2e2; border-color:#dc2626}
+  #score{font-weight:800; font-size:1.05rem; color:#ea580c; margin-top:10px}
+
+  footer{margin-top:44px; color:#6b7280; font-size:.82rem; text-align:center;
+    border-top:1px solid #e5e7eb; padding-top:16px}
+  @media (max-width:640px){ .grid2{grid-template-columns:1fr} }
+  @media print{ body{background:#fff} nav{display:none} .card,table{box-shadow:none} }
+</style>
+</head>
+<body>
+
+<nav><div class="inner">
+  <a href="#alur">Alur</a>
+  <a href="#scraper">Scraper</a>
+  <a href="#crm">CRM</a>
+  <a href="#pipeline">Pipeline</a>
+  <a href="#omni">Omnichannel</a>
+  <a href="#update">Update</a>
+  <a href="#kuis">Kuis</a>
+</div></nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <span class="pill">PANDUAN INTERNAL ROSH, SALES</span>
+    <h1>📦 Cara Kerja Lead Scraper, Qontak CRM &amp; Pipeline</h1>
+    <p>Dari mana lead datang, cara approach customer di WhatsApp, dan cara update pipeline. Interaktif: klik, centang, dan coba kuisnya.</p>
+  </header>
+
+  <p class="lead">Singkatnya: sistem kita mencari calon customer secara otomatis. Tugas Sales adalah
+  menghubungi mereka dengan rapi, lalu mencatat progres di Qontak supaya tidak ada lead yang
+  terlewat atau dihubungi dua kali.</p>
+
+  <h2 id="alur"><span class="n">1</span> Alur Besar</h2>
+  <div class="flow">
+    <div class="step"><b>1. Scraper</b>Cari bisnis F&amp;B di Google Maps (catering, resto, cafe)</div>
+    <div class="arrow">›</div>
+    <div class="step"><b>2. Dedup</b>Buang yang dobel dan yang sudah jadi customer</div>
+    <div class="arrow">›</div>
+    <div class="step"><b>3. Qontak CRM</b>Lead masuk jadi kartu "New Lead" di pipeline</div>
+    <div class="arrow">›</div>
+    <div class="step"><b>4. Omnichannel</b>Sales chat lewat WhatsApp resmi ROSH</div>
+    <div class="arrow">›</div>
+    <div class="step"><b>5. Update Pipeline</b>Geser kartu tiap ada progres sampai closing</div>
+  </div>
+  <p>Langkah 1 sampai 3 jalan otomatis (mesin yang bekerja). Langkah 4 dan 5 adalah tugas Sales. Fokus Anda di dua langkah terakhir.</p>
+
+  <h2 id="scraper"><span class="n">2</span> Apa Itu Scraper &amp; Dedup?</h2>
+  <details class="acc" open>
+    <summary>Scraper</summary>
+    <div class="body">Robot yang otomatis mengumpulkan daftar bisnis makanan dari Google Maps,
+    lengkap dengan nama, nomor WhatsApp, lokasi (kelurahan dan kota), website, dan perkiraan
+    ukuran usaha (Kecil, Sedang, Besar). Tujuannya supaya Anda tahu mana lead yang prioritas.</div>
+  </details>
+  <details class="acc">
+    <summary>Dedup (buang duplikat)</summary>
+    <div class="body">Sistem memastikan satu bisnis tidak muncul dua kali, dan tidak menghubungi
+    bisnis yang sudah jadi customer ROSH. Jadi Anda tidak akan pernah spam restoran yang sama dua kali.
+    Datanya sudah bersih sebelum sampai ke tangan Anda.</div>
+  </details>
+
+  <h2 id="crm"><span class="n">3</span> Apa Itu CRM &amp; Pipeline?</h2>
+  <details class="acc" open>
+    <summary>CRM</summary>
+    <div class="body">CRM (Customer Relationship Management) adalah satu tempat berisi semua calon
+    dan customer, di mana setiap orang selalu punya status jelas: posisinya sekarang di mana, dan
+    langkah berikutnya apa. CRM kita adalah Mekari Qontak.</div>
+  </details>
+  <details class="acc">
+    <summary>Pipeline</summary>
+    <div class="body">Papan tahapan penjualan (seperti papan Kanban). Tiap calon customer adalah satu
+    kartu (Deal) yang bergerak dari kiri ke kanan, dari "baru kenal" sampai "deal closing". Dalam 5 detik
+    Anda bisa lihat semua calon ada di tahap mana.</div>
+  </details>
+
+  <h2 id="pipeline"><span class="n">4</span> Pipeline (klik tiap tahap)</h2>
+  <p>Klik salah satu kolom untuk melihat artinya dan tugas Anda di tahap itu.</p>
+  <div class="kanban" id="kanban">
+    <div class="col" data-stage="0"><div class="head" style="background:#94a3b8">New Lead</div>
+      <div class="deal"><b>Resto Padang Sumber</b>Jaksel, Besar, Skor 78</div>
+      <div class="deal"><b>Warung Bu Sri</b>Depok, Kecil, Skor 31</div></div>
+    <div class="col" data-stage="1"><div class="head" style="background:#3b82f6">Contacted</div>
+      <div class="deal"><b>Katering Sejahtera</b>WA terkirim 30/06</div>
+      <div class="deal"><b>Cafe Kulo</b>Follow up 02/07</div></div>
+    <div class="col" data-stage="2"><div class="head" style="background:#8b5cf6">Qualified</div>
+      <div class="deal"><b>Cloud Kitchen XYZ</b>Butuh Thinwall rutin</div></div>
+    <div class="col" data-stage="3"><div class="head" style="background:#f59e0b">Quote Sent</div>
+      <div class="deal"><b>Bakuljo Catering</b>Sample Rp6jt dikirim</div></div>
+    <div class="col" data-stage="4"><div class="head" style="background:#f97316">Negotiation</div>
+      <div class="deal"><b>Dapur Bunda</b>Nego harga grosir</div></div>
+    <div class="col" data-stage="5"><div class="head" style="background:#16a34a">Won</div>
+      <div class="deal"><b>Kopi Aksa</b>Order Rp3jt/bln</div></div>
+    <div class="col" data-stage="6"><div class="head" style="background:#dc2626">Lost</div>
+      <div class="deal"><b>RM Sederhana</b>Pakai kemasan sendiri</div></div>
+  </div>
+  <div id="stageDetail"><h4>Pilih satu tahap di atas</h4>Detail tugas Sales akan muncul di sini.</div>
+
+  <h2 id="omni"><span class="n">5</span> Cara Kerja di Omnichannel Qontak</h2>
+  <div class="card">
+    <p>Qontak CRM adalah tempat pipeline (kartu Deal). Qontak Omnichannel adalah inbox WhatsApp resmi
+    ROSH tempat semua chat masuk. Keduanya tersambung: chat otomatis nempel ke kartu Deal-nya, jadi
+    riwayat percakapan tercatat sendiri tanpa Anda catat manual.</p>
+    <p><b>Penting:</b> chat selalu dari nomor WhatsApp resmi ROSH di Omnichannel, bukan nomor HP pribadi.
+    Ini melindungi nomor dari banned dan terlihat profesional.</p>
+  </div>
+
+  <h3>SOP harian Sales (centang sambil kerja, otomatis tersimpan)</h3>
+  <div class="progress"><div id="bar"></div></div>
+  <ul class="checklist" id="sop">
+    <li><input type="checkbox" id="s1"><label for="s1">Buka Qontak, kerjakan kartu di kolom <b>New Lead</b> dulu</label></li>
+    <li><input type="checkbox" id="s2"><label for="s2">Klik kartu lead, buka chat Omnichannel, kirim pesan pembuka</label></li>
+    <li><input type="checkbox" id="s3"><label for="s3">Geser kartu ke <b>Contacted</b>, isi tanggal follow up (misal +2 hari)</label></li>
+    <li><input type="checkbox" id="s4"><label for="s4">Begitu dibalas, tanya kebutuhan, geser ke <b>Qualified</b></label></li>
+    <li><input type="checkbox" id="s5"><label for="s5">Kirim katalog, harga, atau sample, geser ke <b>Quote Sent</b></label></li>
+    <li><input type="checkbox" id="s6"><label for="s6">Tutup tiap kartu ke <b>Won</b> atau <b>Lost</b>, jangan ada yang menggantung</label></li>
+  </ul>
+
+  <h3>Template pesan pembuka (klik Salin)</h3>
+  <div class="chat">
+    <div class="tmpl">
+      <span class="bubble" id="t1">Halo Kak, selamat siang. Saya Sales dari ROSH, supplier kemasan makanan Thinwall dan Cup Oz untuk usaha F&amp;B. Kebetulan lihat usaha Kakak di Google Maps, boleh saya kirimkan daftar harga grosirnya? Banyak catering dan resto sudah hemat biaya kemasan dengan kami. 🙏</span>
+      <button class="copybtn" data-t="t1">Salin pesan</button>
+    </div>
+    <div class="tmpl">
+      <span class="bubble" id="t2">Halo Kak 👋 Perkenalkan, ROSH, distributor kemasan Thinwall dan Cup Oz harga grosir. Kira kira untuk usaha Kakak, biasanya pakai kemasan ukuran apa ya? Saya bantu carikan yang paling pas dan hemat.</span>
+      <button class="copybtn" data-t="t2">Salin pesan</button>
+    </div>
+    <p style="font-size:.88rem;color:#6b7280">Catatan: jangan jual harga di pesan pertama. Bangun obrolan dulu, baru kirim katalog setelah dibalas.</p>
+  </div>
+
+  <h2 id="update"><span class="n">6</span> Cara Update Pipeline (contoh nyata)</h2>
+  <p>Update pipeline berarti geser kartu ke kolom baru tiap ada perkembangan, lalu isi catatan dan
+  tanggal follow up. Aturan emas: kalau tidak dicatat di Qontak, anggap tidak terjadi. Jangan simpan
+  progres di kepala atau di chat pribadi.</p>
+  <div class="timeline">
+    <div class="t"><div class="when">30 Jun, New Lead</div>Kartu "Katering Sejahtera" muncul otomatis dari scraper (Besar, Skor 81).</div>
+    <div class="t"><div class="when">30 Jun, Contacted</div>Sales kirim pesan pembuka lewat Omnichannel. Geser kartu ke Contacted. Set follow up 2 Jul.</div>
+    <div class="t"><div class="when">1 Jul, Qualified</div>Customer balas, butuh Thinwall tiap minggu. Geser ke Qualified. Catat "rutin sekitar 20 dus per bulan".</div>
+    <div class="t"><div class="when">2 Jul, Quote Sent</div>Sales kirim daftar harga grosir dan foto produk. Geser ke Quote Sent. Set follow up 4 Jul.</div>
+    <div class="t"><div class="when">4 Jul, Negotiation</div>Customer minta harga lebih baik untuk volume besar. Geser ke Negotiation.</div>
+    <div class="t"><div class="when">6 Jul, Won</div>Deal. Order pertama Rp5jt. Geser ke Won, mulai onboarding sebagai langganan.</div>
+  </div>
+
+  <h3>Aturan main</h3>
+  <div class="grid2">
+    <div class="card do"><h3>Lakukan</h3>
+      <ul><li>Kerjakan lead skor tinggi (Besar) lebih dulu</li>
+      <li>Pesan pembuka ramah dan personal (sebut nama bisnisnya)</li>
+      <li>Geser kartu setiap ada progres</li>
+      <li>Selalu isi tanggal follow up</li>
+      <li>Tutup kartu ke Won atau Lost dengan alasan</li></ul></div>
+    <div class="card dont"><h3>Hindari</h3>
+      <ul><li>Blast pesan sama ke banyak orang sekaligus</li>
+      <li>Chat dari nomor HP pribadi</li>
+      <li>Jualan harga di pesan pertama</li>
+      <li>Biarkan kartu menggantung tanpa status</li>
+      <li>Catat progres di kepala atau chat pribadi</li></ul></div>
+  </div>
+
+  <h2 id="kuis"><span class="n">7</span> Kuis Singkat</h2>
+  <p>Jawab 4 pertanyaan ini untuk memastikan Anda paham. Klik pilihan, lalu tekan Cek Jawaban.</p>
+  <div class="quiz" id="quiz">
+    <div class="q" data-ans="1">
+      <p>1. Lead baru dari scraper masuk ke tahap mana?</p>
+      <div class="opt">Qualified</div><div class="opt">New Lead</div><div class="opt">Won</div>
+    </div>
+    <div class="q" data-ans="2">
+      <p>2. Saat chat customer, nomor yang dipakai adalah?</p>
+      <div class="opt">Nomor HP pribadi Sales</div><div class="opt">Nomor mana saja</div><div class="opt">Nomor WhatsApp resmi ROSH di Omnichannel</div>
+    </div>
+    <div class="q" data-ans="0">
+      <p>3. Kapan kartu digeser ke tahap berikutnya?</p>
+      <div class="opt">Setiap ada progres nyata</div><div class="opt">Setiap akhir bulan</div><div class="opt">Hanya kalau sudah Won</div>
+    </div>
+    <div class="q" data-ans="2">
+      <p>4. Apa yang benar soal pesan pertama ke customer?</p>
+      <div class="opt">Langsung kasih daftar harga lengkap</div><div class="opt">Kirim ke 100 orang sekaligus</div><div class="opt">Ramah, personal, bangun obrolan dulu</div>
+    </div>
+  </div>
+  <button class="copybtn" id="checkQuiz">Cek Jawaban</button>
+  <div id="score"></div>
+
+  <footer>ROSH Finance, Panduan Internal Sales, 30 Juni 2026. Pertanyaan? Hubungi Bro (Aditya).</footer>
+
+</div>
+
+<script>
+  // Pipeline stage details
+  var stages = [
+    {t:"New Lead", d:"Lead baru masuk dari scraper. Tugas Anda: kirim pesan pembuka WhatsApp hari itu juga."},
+    {t:"Contacted", d:"Pesan sudah dikirim, belum dibalas. Tugas Anda: follow up 2 sampai 3 hari lagi, isi tanggalnya."},
+    {t:"Qualified", d:"Mereka balas dan memang pakai kemasan. Tugas Anda: konfirmasi kebutuhan dan perkiraan volume."},
+    {t:"Quote Sent", d:"Daftar harga atau sample sudah dikirim. Tugas Anda: kejar keputusan mereka."},
+    {t:"Negotiation", d:"Sedang bahas harga atau termin. Tugas Anda: tutup deal, tawarkan harga volume kalau perlu."},
+    {t:"Won", d:"Mereka order. Tugas Anda: onboarding dan jadikan langganan rutin."},
+    {t:"Lost", d:"Menolak atau tidak cocok. Tugas Anda: catat alasannya, lalu stop kejar."}
+  ];
+  var cols = document.querySelectorAll('#kanban .col');
+  var detail = document.getElementById('stageDetail');
+  cols.forEach(function(c){
+    c.addEventListener('click', function(){
+      cols.forEach(function(x){x.classList.remove('active')});
+      c.classList.add('active');
+      var s = stages[+c.dataset.stage];
+      detail.innerHTML = '<h4>'+s.t+'</h4>'+s.d;
+    });
+  });
+
+  // Copy buttons
+  document.querySelectorAll('.copybtn[data-t]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var txt = document.getElementById(b.dataset.t).innerText;
+      navigator.clipboard.writeText(txt).then(function(){
+        var old = b.innerText; b.innerText = 'Tersalin ✓'; b.classList.add('ok');
+        setTimeout(function(){ b.innerText = old; b.classList.remove('ok'); }, 1500);
+      });
+    });
+  });
+
+  // SOP checklist with localStorage
+  var boxes = document.querySelectorAll('#sop input');
+  var bar = document.getElementById('bar');
+  function refresh(){
+    var done = 0;
+    boxes.forEach(function(b){
+      var li = b.closest('li');
+      if(b.checked){ done++; li.classList.add('done'); } else { li.classList.remove('done'); }
+      localStorage.setItem('sop_'+b.id, b.checked ? '1':'0');
+    });
+    bar.style.width = (done/boxes.length*100)+'%';
+  }
+  boxes.forEach(function(b){
+    b.checked = localStorage.getItem('sop_'+b.id) === '1';
+    b.addEventListener('change', refresh);
+  });
+  refresh();
+
+  // Quiz
+  document.querySelectorAll('.quiz .q').forEach(function(q){
+    q.querySelectorAll('.opt').forEach(function(o,i){
+      o.addEventListener('click', function(){
+        q.querySelectorAll('.opt').forEach(function(x){x.dataset.sel='0'});
+        o.dataset.sel='1';
+        q.querySelectorAll('.opt').forEach(function(x){x.style.outline='none'});
+        o.style.outline='2px solid #f97316';
+      });
+    });
+  });
+  document.getElementById('checkQuiz').addEventListener('click', function(){
+    var qs = document.querySelectorAll('.quiz .q'), correct=0;
+    qs.forEach(function(q){
+      var ans = +q.dataset.ans, opts = q.querySelectorAll('.opt');
+      opts.forEach(function(o){ o.classList.remove('correct','wrong'); });
+      var sel = -1;
+      opts.forEach(function(o,i){ if(o.dataset.sel==='1') sel=i; });
+      if(sel===ans){ correct++; opts[sel].classList.add('correct'); }
+      else if(sel>=0){ opts[sel].classList.add('wrong'); opts[ans].classList.add('correct'); }
+      else { opts[ans].classList.add('correct'); }
+    });
+    var s = document.getElementById('score');
+    s.innerText = 'Skor Anda: '+correct+' dari '+qs.length+ (correct===qs.length ? '. Mantap, siap jualan! 🎉' : '. Coba ulangi bagian yang masih salah.');
+  });
+</script>
+</body>
+</html>
