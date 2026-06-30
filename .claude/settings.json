@@ -14,7 +14,23 @@
       "Bash(git ls-files *)",
       "Bash(grep -iE \"\\\\.env$|service_account|credentials|\\\\.json$|ledger\\\\.csv|secret\")",
       "Bash(python -m py_compile app.py enrich/scoring.py)",
-      "Bash(python -c \"from enrich.scoring import _price_component as p; print\\('Rp 25.000-50.000 ->', p\\('Rp 25.000-50.000'\\)\\); print\\('Rp 50-100 rb ->', p\\('Rp 50-100 rb'\\)\\); print\\('\\\\$\\\\$ ->', p\\('\\\\$\\\\$'\\)\\); print\\('empty ->', p\\(''\\)\\); print\\('Rp 1jt-2jt ->', p\\('Rp 1jt-2jt'\\)\\)\")"
+      "Bash(python -c \"from enrich.scoring import _price_component as p; print\\('Rp 25.000-50.000 ->', p\\('Rp 25.000-50.000'\\)\\); print\\('Rp 50-100 rb ->', p\\('Rp 50-100 rb'\\)\\); print\\('\\\\$\\\\$ ->', p\\('\\\\$\\\\$'\\)\\); print\\('empty ->', p\\(''\\)\\); print\\('Rp 1jt-2jt ->', p\\('Rp 1jt-2jt'\\)\\)\")",
+      "Bash(./.venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(./.venv/Scripts/python.exe -m pip list)",
+      "Bash(./.venv/Scripts/python.exe -c \"import streamlit\")",
+      "Bash(./.venv/Scripts/python.exe -m pip install --force-reinstall --no-cache-dir \"streamlit>=1.33\" \"protobuf<6\")",
+      "Bash(\"C:/Users/958632183/AppData/Local/Programs/Python/Python313/python.exe\" -m venv .venv)",
+      "Bash(./.venv/Scripts/python.exe -m pip install --upgrade pip)",
+      "Bash(./.venv/Scripts/python.exe -m pip install -r requirements.txt)",
+      "Bash(./.venv/Scripts/python.exe -c \"import streamlit; print\\('streamlit OK', streamlit.__version__\\)\")",
+      "Bash(./.venv/Scripts/python.exe -c \"import ast; ast.parse\\(open\\('app.py',encoding='utf-8'\\).read\\(\\)\\); print\\('app.py parses OK'\\)\")",
+      "Bash(./.venv/Scripts/python.exe -m playwright install chromium)",
+      "Bash(ls -d ~/AppData/Local/ms-playwright/chromium-*)",
+      "Bash(./.venv/Scripts/python.exe -c \"from pathlib import Path; import sys; hit=list\\(Path.home\\(\\).glob\\('AppData/Local/ms-playwright/chromium-*'\\)\\); print\\('FOUND:', [p.name for p in hit]\\); sys.exit\\(0 if hit else 1\\)\")",
+      "Bash(ls output/)",
+      "Bash(./.venv/Scripts/python.exe -)",
+      "Bash(git diff *)",
+      "Bash(git --no-pager log --oneline -3)"
     ],
     "additionalDirectories": [
       "c:\\Users\\958632183\\Downloads\\#Important\\OneDrive - Kemenkeu\\Cowork OS"
