@@ -6,7 +6,9 @@
       "Bash(git fsck *)",
       "Bash(git ls-remote *)",
       "Bash(git hash-object *)",
-      "Bash(git fetch *)"
+      "Bash(git fetch *)",
+      "Bash(python -c 'import os; print\\('\\\\''dirname of ledger.csv ='\\\\'', repr\\(os.path.dirname\\('\\\\''ledger.csv'\\\\''\\)\\)\\); *)",
+      "Bash(git status *)"
     ]
   }
 }

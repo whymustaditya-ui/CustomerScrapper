@@ -1,6 +1,6 @@
 """Thin gspread wrapper for the living CRM Google Sheet.
 
-The Sheet is Nathan's single source of truth: leads arrive in batches of 10, he
+The Sheet is Sales' single source of truth: leads arrive in batches of 10; Sales
 updates `status` in place, and the batch gate (crm/tracker.py) reads it back.
 
 Auth: a Google service account JSON key. Share the target spreadsheet with the

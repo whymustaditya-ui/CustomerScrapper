@@ -298,8 +298,8 @@ if "result" in st.session_state:
         with st.expander(f"Excluded / dedup rows ({len(excluded)}) — audit"):
             st.dataframe(pd.DataFrame(excluded), use_container_width=True)
 
-    # ---- Nathan's batch (the quality gate) ----
-    st.subheader("Nathan's next batch")
+    # ---- Sales' batch (the quality gate) ----
+    st.subheader("Sales' next batch")
     st.caption(
         f"Releases the top {crm_tracker.DEFAULT_BATCH_SIZE} highest-scored fresh leads to "
         "the Google Sheet — but only once the current batch is fully worked. "
@@ -332,7 +332,7 @@ if "result" in st.session_state:
         except Exception as e:
             st.warning(f"Could not read the Sheet: {e}")
 
-        if st.button(f"📋 Build Nathan's next batch ({crm_tracker.DEFAULT_BATCH_SIZE})",
+        if st.button(f"📋 Build Sales' next batch ({crm_tracker.DEFAULT_BATCH_SIZE})",
                      type="primary", disabled=not leads):
             res = crm_tracker.release_next_batch(leads)
             if res["released"]:

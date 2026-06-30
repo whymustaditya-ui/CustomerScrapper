@@ -1,14 +1,14 @@
 # Google Sheet Setup — One Page
 
-Nathan's living CRM lives in a Google Sheet. The scraper writes batches of 10 into
-it; Nathan updates `status` there. This is a one-time setup (~10 min). Do it once,
+Sales' living CRM lives in a Google Sheet. The scraper writes batches of 10 into
+it; Sales updates `status` there. This is a one-time setup (~10 min). Do it once,
 never again.
 
 ---
 
 ## 1. Create the Google Sheet (1 min)
 1. Go to <https://sheets.google.com> → **Blank spreadsheet**.
-2. Name it e.g. `ROSH Leads — Nathan`.
+2. Name it e.g. `ROSH Leads — Sales`.
 3. From the URL, copy the **spreadsheet ID** (the long part between `/d/` and `/edit`):
    `https://docs.google.com/spreadsheets/d/`**`1AbC...xyz`**`/edit` → ID = `1AbC...xyz`.
 
@@ -43,7 +43,7 @@ pip install -r requirements.txt      # installs gspread + google-auth
 streamlit run app.py
 ```
 In the app sidebar you should see **"✅ Google Sheet connected."** Run a small scrape,
-click **Build Nathan's next batch (10)**, and 10 rows should appear in the Sheet with
+click **Build Sales' next batch (10)**, and 10 rows should appear in the Sheet with
 `wa.me` links. Done.
 
 ---

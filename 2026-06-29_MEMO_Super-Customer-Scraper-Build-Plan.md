@@ -6,7 +6,7 @@ ROSH (food packaging distributor — Thinwall, Cup Oz) needs a steady pipeline o
 customers: catering, horeca, and restos in Jabodetabek that plausibly use disposable
 packaging. Today there's no systematic lead-gen — leads are ad hoc. This tool scrapes
 Google Maps to build qualified lead lists, scores each by likely volume ("store size"),
-dedups against existing ROSH customers, and hands a clean, segmented list to Nathan to
+dedups against existing ROSH customers, and hands a clean, segmented list to Sales to
 work via Mekari Qontak (WhatsApp Business outreach + website pitch).
 
 **Goal per lead:** Name · Industry · Location (Kelurahan + Kota) · Reliable contact
@@ -24,7 +24,7 @@ work via Mekari Qontak (WhatsApp Business outreach + website pitch).
 blocks. Mitigate with conservative rate-limiting, random delays, realistic UA, modest
 per-run volume (pilot scope helps). Run from a personal/business network, **not** MoF
 infrastructure. Outreach must be opt-out-respecting and not a cold blast (protects
-Nathan's WA number from bans).
+Sales' WA number from bans).
 
 ## Tech Stack
 

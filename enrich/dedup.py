@@ -172,7 +172,9 @@ def append_to_ledger(rows: list[dict], ledger_path: str | None = None) -> None:
     ledger_path = ledger_path or LEDGER_PATH
     if not rows:
         return
-    os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
+    ledger_dir = os.path.dirname(ledger_path)
+    if ledger_dir:
+        os.makedirs(ledger_dir, exist_ok=True)
     records = []
     for row in rows:
         place_id, phone, name_kel = _row_identity(row)
