@@ -156,10 +156,19 @@ def read_tracker(columns: list[str] | None = None, header_row: list[str] | None 
     """Return the full CRM sheet as a DataFrame keyed by machine column names.
 
     Tolerant to the header style: friendly labels or old machine keys both map back
-    to the canonical `columns` names.
+    to the canonical `columns` names. Also tolerant to a Sales banner in row 1 (added
+    by the Apps Script beautify): if row 1 is the batch-rule banner, headers are read
+    from row 2 instead, so the gate/dedup reads keep working with or without it.
     """
     ws = _worksheet(columns, header_row)
-    records = ws.get_all_records()  # list of dicts keyed by header row
+    head = 1
+    try:
+        first_row = ws.row_values(1)
+        if first_row and any("ATURAN BATCH" in str(c) for c in first_row):
+            head = 2  # row 1 is the banner; the real header sits just below it
+    except Exception:
+        pass
+    records = ws.get_all_records(head=head)  # list of dicts keyed by header row
     df = pd.DataFrame(records)
     if not df.empty:
         rev = _reverse_map(columns, header_row)
@@ -384,6 +393,31 @@ def beautify(
 
     ws.spreadsheet.batch_update({"requests": reqs})
     return len(reqs)
+
+
+def set_header_notes(col_notes: dict[int, str], data_rows: int = 1000) -> int:
+    """Attach hover-notes to header cells (row 1) by 0-based column index.
+
+    Notes are cell metadata: invisible to `get_all_records`, they survive appends
+    and any row rewrite, and can't shift columns. Used to pin the batch-gate rule
+    onto the Status / Batch headers so Sales always sees why the next batch is held.
+    Idempotent — re-running overwrites the same notes. Returns the number written.
+    """
+    if not col_notes:
+        return 0
+    ws = _worksheet()
+    sheet_id = ws.id
+    requests = []
+    for col, note in col_notes.items():
+        requests.append({
+            "updateCells": {
+                "start": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": int(col)},
+                "rows": [{"values": [{"note": str(note)}]}],
+                "fields": "note",
+            }
+        })
+    ws.spreadsheet.batch_update({"requests": requests})
+    return len(requests)
 
 
 def _cell(v) -> str:

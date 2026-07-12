@@ -343,6 +343,7 @@ def scrape(
     on_lead: Optional[Callable[[dict], None]] = None,
     target_qualified: Optional[int] = None,
     qualifies: Optional[Callable[[dict], bool]] = None,
+    known_place_ids: Optional[set] = None,
 ) -> list[dict]:
     """Run the scrape grid and return a list of place dicts.
 
@@ -364,12 +365,17 @@ def scrape(
         bounded by max_results as an absolute anti-block ceiling.
       qualifies: predicate(place_dict) -> bool deciding if a scraped lead counts
         toward target_qualified (e.g. has a WA number, passes review floor, net-new).
+      known_place_ids: place_ids already captured in prior runs (the master ledger).
+        Their feed cards are skipped BEFORE the expensive detail visit, so each run
+        resumes where the last left off instead of re-scraping the same top results.
     """
     if watch_mode:
         headless = False  # the whole point of watch mode is to see it
 
+    known_ids = {str(p).lower() for p in known_place_ids} if known_place_ids else set()
     results: list[Place] = []
     seen_urls: set[str] = set()
+    skipped_known = 0  # feed cards skipped because they're already in the ledger
     qualified = 0  # count of leads passing `qualifies` (drives target-based stop)
 
     def _reached_goal() -> bool:
@@ -468,13 +474,22 @@ def scrape(
                     scroll_min=scroll_min, scroll_max=scroll_max, watch_mode=watch_mode,
                 )
 
-                # Collect place links from the feed.
+                # Collect place links from the feed. Skip any card whose place_id is
+                # already in the ledger BEFORE visiting it — the whole "resume, don't
+                # restart" saving. The 0x…:0x… id lives in the feed href itself, so no
+                # page load is needed to recognise a place we've already worked.
                 links = page.query_selector_all('div[role="feed"] a[href*="/maps/place/"]')
                 place_urls = []
                 for a in links:
                     href = a.get_attribute("href")
-                    if href and href not in seen_urls:
-                        place_urls.append(href)
+                    if not href or href in seen_urls:
+                        continue
+                    pid = extract_place_id(href)
+                    if pid and pid in known_ids:
+                        seen_urls.add(href)
+                        skipped_known += 1
+                        continue
+                    place_urls.append(href)
 
                 # Watch mode: a visible "review" pass — hover the cards we're about to
                 # work so you can watch the robot move down the list. Done while the
@@ -517,10 +532,13 @@ def scrape(
             if target_qualified is not None:
                 progress(
                     f"Done. {qualified}/{target_qualified} qualified "
-                    f"({len(results)} scanned).", 1.0,
+                    f"({len(results)} scanned, {skipped_known} already-known skipped).", 1.0,
                 )
             else:
-                progress(f"Done. {len(results)} leads collected.", 1.0)
+                progress(
+                    f"Done. {len(results)} leads collected "
+                    f"({skipped_known} already-known skipped).", 1.0,
+                )
         finally:
             context.close()
             browser.close()

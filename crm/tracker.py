@@ -85,6 +85,31 @@ NOTE_OPTIONS = [
 
 DEFAULT_BATCH_SIZE = 10
 
+# Batch-gate rule, pinned as hover-notes on the Status + Batch headers so Sales
+# always sees why the next batch is held. Plain text (Sheets notes render no HTML).
+SALES_NOTE_STATUS = (
+    "ATURAN BATCH\n\n"
+    "Tiap lead WAJIB ada progress. Ubah Status dari 'New' minimal jadi "
+    "'Contacted' (lalu Replied/Quoted/Won/Lost sesuai hasil), dan isi Catatan "
+    "+ Tgl Follow-up.\n\n"
+    "Batch 10 berikutnya baru masuk otomatis kalau SEMUA lead batch ini sudah "
+    "lewat status 'New'. Selama masih ada yang 'New', lead baru ditahan sistem."
+)
+SALES_NOTE_BATCH = (
+    "Lead datang per batch (10). Batch baru hanya keluar kalau batch sebelumnya "
+    "sudah dikerjakan semua (tidak ada lagi Status 'New'). Ini menjaga kualitas "
+    "approach dan melindungi nomor WhatsApp dari blokir."
+)
+
+
+def apply_sales_notes() -> int:
+    """Pin the batch-gate rule as hover-notes on the Status + Batch headers.
+    Idempotent; safe no-op if the Sheet isn't configured."""
+    return gsheets.set_header_notes({
+        TRACKER_COLUMNS.index("status"): SALES_NOTE_STATUS,
+        TRACKER_COLUMNS.index("batch_id"): SALES_NOTE_BATCH,
+    })
+
 
 def build_wa_link(phone_normalized: str) -> str:
     """wa.me click-to-chat link from a +62 number (digits only, no +)."""
@@ -242,6 +267,13 @@ def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict
 
     gsheets.append_rows(batch_rows, TRACKER_COLUMNS, TRACKER_HEADER_ROW)
     dedup_mod.append_to_ledger(chosen)
+
+    # Keep the batch-gate rule pinned on the Status/Batch headers. Best-effort:
+    # a note failure must never undo a release that already wrote to the Sheet.
+    try:
+        apply_sales_notes()
+    except Exception:
+        pass
 
     return {
         "released": True,

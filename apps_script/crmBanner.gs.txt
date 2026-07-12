@@ -1,0 +1,64 @@
+/**
+ * ROSH — Sales batch-rule banner for the "CRM Leads (Scraper)" tab.
+ *
+ * HOW TO TURN IT ON (one time):
+ *   1. Open the sheet → Extensions → Apps Script (the "Invoices" project).
+ *   2. Click the + next to "Files" → Script → name it `crmBanner`.
+ *   3. Paste EVERYTHING in this file, then Save (Ctrl+S).
+ *   4. In the function dropdown at the top, pick `installCrmBanner` → Run.
+ *   5. First run asks for permission → Review permissions → allow. Done.
+ * After that, the banner is live; to keep it fresh on every sync, add a call to
+ * `ensureCrmBatchBanner_()` at the end of your beautify pass in beautifyCrmLeads.gs.
+ *
+ * It writes a merged, colored, FROZEN banner as row 1, pushing the column headers
+ * to row 2 the first time it runs. Idempotent: re-running just refreshes the banner
+ * text/format and never adds a second banner row. The Python scraper already
+ * auto-detects this banner (gsheets.read_tracker) and reads headers from row 2,
+ * so no config change is needed — with or without the banner it just works.
+ * The Python side also pins the same rule as hover-notes on the Status/Batch
+ * headers; this banner is purely the louder, always-visible version.
+ */
+
+var CRM_TAB_NAME = 'CRM Leads (Scraper)';
+var CRM_BANNER_TEXT =
+  '⚠️ ATURAN BATCH: tiap lead WAJIB ada progress. ' +
+  "Ubah Status dari 'New' minimal jadi 'Contacted' (isi Catatan + Tgl Follow-up). " +
+  "Batch 10 berikutnya baru masuk otomatis kalau SEMUA lead batch ini sudah lewat 'New'.";
+
+// Public entry point — select this in the Run dropdown and run it once.
+// (Apps Script hides functions ending in "_" from the Run menu, so this wrapper
+// is what you actually run; the real work stays in the private function below.)
+function installCrmBanner() {
+  ensureCrmBatchBanner_();
+}
+
+function ensureCrmBatchBanner_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(CRM_TAB_NAME);
+  if (!sh) return;
+
+  // Detect whether row 1 is already our banner (starts with the warning glyph).
+  var firstCell = String(sh.getRange(1, 1).getValue() || '');
+  var hasBanner = firstCell.indexOf('ATURAN BATCH') !== -1;
+
+  // Insert a fresh top row for the banner the first time only.
+  if (!hasBanner) {
+    sh.insertRowBefore(1);
+  }
+
+  var lastCol = Math.max(sh.getLastColumn(), 18); // 18 = full CRM column set
+  sh.getRange(1, 1, 1, lastCol).breakApart();     // clear any prior merge safely
+  var banner = sh.getRange(1, 1, 1, lastCol);
+  banner.merge();
+  banner.setValue(CRM_BANNER_TEXT);
+  banner.setBackground('#FCE8B2');                // soft amber = "read me"
+  banner.setFontColor('#7A4F01');
+  banner.setFontWeight('bold');
+  banner.setWrap(true);
+  banner.setVerticalAlignment('middle');
+  banner.setHorizontalAlignment('left');
+  sh.setRowHeight(1, 44);
+
+  // Freeze the banner + the header row beneath it so both stay pinned on scroll.
+  sh.setFrozenRows(2);
+}

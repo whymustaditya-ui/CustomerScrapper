@@ -32,24 +32,26 @@ if not defined PY (
 echo [*] Pakai Python: !PY!
 
 REM --- ensure a healthy virtual env ---------------------------------
-REM  Rebuild if missing OR corrupted. OneDrive can dehydrate files in
-REM  .venv and break the install (streamlit import fails), so we verify
-REM  the env actually works instead of just checking that the folder exists.
+REM  The venv lives in %LOCALAPPDATA% (NOT the project folder) so OneDrive
+REM  never syncs or dehydrates it. Rebuild if missing OR corrupted; we
+REM  verify the env actually imports streamlit, not just that it exists.
+set "VENV=%LOCALAPPDATA%\ROSH-Scraper\.venv"
+set "VPY=%VENV%\Scripts\python.exe"
 set "NEED_SETUP="
-if not exist ".venv\Scripts\python.exe" set "NEED_SETUP=1"
-if exist ".venv\Scripts\python.exe" ".venv\Scripts\python.exe" -c "import streamlit" >nul 2>nul || set "NEED_SETUP=1"
+if not exist "%VPY%" set "NEED_SETUP=1"
+if exist "%VPY%" "%VPY%" -c "import streamlit" >nul 2>nul || set "NEED_SETUP=1"
 
 if defined NEED_SETUP (
     echo [*] Menyiapkan / memperbaiki environment ^(sekali saja, agak lama^)...
-    if exist ".venv" rmdir /s /q ".venv"
-    !PY! -m venv .venv
-    if not exist ".venv\Scripts\python.exe" (
+    if exist "%VENV%" rmdir /s /q "%VENV%"
+    !PY! -m venv "%VENV%"
+    if not exist "%VPY%" (
         echo [X] Gagal membuat virtual environment.
         pause
         exit /b 1
     )
-    ".venv\Scripts\python.exe" -m pip install --upgrade pip
-    ".venv\Scripts\python.exe" -m pip install -r requirements.txt
+    "%VPY%" -m pip install --upgrade pip
+    "%VPY%" -m pip install -r requirements.txt
     if errorlevel 1 (
         echo [X] Gagal install dependencies. Cek koneksi internet lalu jalankan lagi.
         pause
@@ -57,7 +59,7 @@ if defined NEED_SETUP (
     )
 )
 
-call ".venv\Scripts\activate.bat"
+call "%VENV%\Scripts\activate.bat"
 
 REM --- pastikan browser Chromium untuk Playwright tersedia (self-heal) ---
 REM  Idempotent: kalau sudah ada, ini cepat; kalau hilang, langsung dipasang.

@@ -26,8 +26,10 @@ from ui import theme
 
 # Kontak Customer directory (same spreadsheet): auto-dedup leads against existing
 # Accurate customers by phone. Labels live on row 3 under a banner; we match on the
-# two phone columns only (names can be stored inconsistently).
-CUSTOMER_DIR_TAB = "Kontak Customer"
+# two phone columns only (names can be stored inconsistently). The tab title carries
+# a leading 📇 emoji — it must match EXACTLY (gspread does no fuzzy match), or the
+# lookup silently returns nothing and the customer dedup becomes a no-op.
+CUSTOMER_DIR_TAB = "📇 Kontak Customer"
 CUSTOMER_DIR_PHONE_COLS = {"No WA", "No Bisnis"}
 CUSTOMER_DIR_HEADER_ROW = 3
 
@@ -260,6 +262,9 @@ def _run_pipeline():
         on_lead=on_lead,
         target_qualified=target_qualified,
         qualifies=_qualifies if target_qualified else None,
+        # Skip places already in the ledger at the feed stage (don't re-scrape what
+        # prior runs already surfaced). Only when ledger filtering is on.
+        known_place_ids=lg_pid if use_ledger else None,
     )
     progress_bar.progress(1.0)
     live_box.empty()
