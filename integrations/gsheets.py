@@ -106,6 +106,52 @@ def _worksheet(columns: list[str] | None = None, header_row: list[str] | None = 
     return ws
 
 
+def _open_named(worksheet_name: str):
+    """Return a gspread handle for an EXISTING named tab in the same spreadsheet,
+    or None if it doesn't exist / Sheets isn't configured. Never creates the tab —
+    used to read side references (e.g. the Kontak Customer directory)."""
+    if not is_configured():
+        return None
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+    except ImportError:
+        return None
+    env = _env()
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    creds = Credentials.from_service_account_file(env["creds_file"], scopes=scopes)
+    client = gspread.authorize(creds)
+    sh = client.open_by_key(env["spreadsheet_id"])
+    try:
+        return sh.worksheet(worksheet_name)
+    except Exception:
+        return None
+
+
+def read_column_values(worksheet_name: str, headers: set[str], header_row: int = 1) -> list[str]:
+    """Flat list of raw cell strings from the given column labels of a named tab.
+
+    `header_row` is the 1-based row holding the column labels (the Kontak Customer
+    directory keeps them on row 3, under a banner + subtitle). Returns [] if the tab
+    is missing or has no matching columns — a safe no-op so a renamed/absent
+    reference tab never breaks a scrape.
+    """
+    ws = _open_named(worksheet_name)
+    if ws is None:
+        return []
+    values = ws.get_all_values()
+    if len(values) < header_row:
+        return []
+    labels = [str(h).strip() for h in values[header_row - 1]]
+    idxs = [i for i, h in enumerate(labels) if h in headers]
+    out: list[str] = []
+    for row in values[header_row:]:
+        for i in idxs:
+            if i < len(row) and str(row[i]).strip():
+                out.append(str(row[i]).strip())
+    return out
+
+
 def read_tracker(columns: list[str] | None = None, header_row: list[str] | None = None) -> pd.DataFrame:
     """Return the full CRM sheet as a DataFrame keyed by machine column names.
 
@@ -191,6 +237,153 @@ def set_validations(rules: list[dict], data_rows: int = 1000) -> int:
         })
     ws.spreadsheet.batch_update({"requests": requests})
     return len(requests)
+
+
+def _rgb(r: int, g: int, b: int) -> dict:
+    """A Sheets API color from 0–255 RGB ints."""
+    return {"red": r / 255, "green": g / 255, "blue": b / 255}
+
+
+def beautify(
+    columns: list[str],
+    header_row: list[str],
+    status_col: int | None = None,
+    status_colors: dict | None = None,
+    score_col: int | None = None,
+    col_widths: dict[int, int] | None = None,
+    freeze_cols: int = 0,
+    data_rows: int = 1000,
+) -> int:
+    """Apply a clean, professional visual layout to the worksheet. Idempotent.
+
+    Dark navy header (white bold) with a green accent underline, frozen header,
+    zebra-banded data rows, tuned column widths, a colour-coded Status column, and
+    a subtle heat gradient on the score column. Safe to re-run — existing banding
+    and conditional-format rules on this sheet are cleared first so clicking the
+    button twice never stacks duplicates. Returns the number of API requests sent.
+    """
+    ws = _worksheet(columns, header_row)
+    sheet_id = ws.id
+    ncols = len(columns)
+    end_row = data_rows + 1  # header + data_rows
+
+    # Discover existing banding + conditional formats on THIS sheet so we can clear
+    # them first (keeps the operation idempotent across repeated clicks).
+    existing_bandings: list[int] = []
+    existing_cf: int = 0
+    try:
+        meta = ws.spreadsheet.fetch_sheet_metadata()
+        for s in meta.get("sheets", []):
+            if s.get("properties", {}).get("sheetId") == sheet_id:
+                existing_bandings = [b["bandedRangeId"] for b in s.get("bandedRanges", [])]
+                existing_cf = len(s.get("conditionalFormats", []))
+                break
+    except Exception:
+        pass
+
+    NAVY = _rgb(0x1F, 0x2A, 0x3C)
+    WHITE = _rgb(0xFF, 0xFF, 0xFF)
+    GREEN_ACCENT = _rgb(0x0F, 0x9D, 0x58)
+    BAND = _rgb(0xF1, 0xF4, 0xF9)
+    full = {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": end_row,
+            "startColumnIndex": 0, "endColumnIndex": ncols}
+    data = {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": end_row,
+            "startColumnIndex": 0, "endColumnIndex": ncols}
+
+    reqs: list[dict] = []
+
+    # 0. Clear prior banding + conditional formats (idempotency).
+    for bid in existing_bandings:
+        reqs.append({"deleteBanding": {"bandedRangeId": bid}})
+    for _ in range(existing_cf):
+        reqs.append({"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": 0}})
+
+    # 1. Freeze header row (+ optional leading columns).
+    reqs.append({"updateSheetProperties": {
+        "properties": {"sheetId": sheet_id, "gridProperties": {
+            "frozenRowCount": 1, "frozenColumnCount": freeze_cols}},
+        "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"}})
+
+    # 2. Header row: navy fill, white bold text, middle-aligned.
+    reqs.append({"repeatCell": {
+        "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1,
+                  "startColumnIndex": 0, "endColumnIndex": ncols},
+        "cell": {"userEnteredFormat": {
+            "backgroundColor": NAVY,
+            "horizontalAlignment": "LEFT", "verticalAlignment": "MIDDLE",
+            "wrapStrategy": "CLIP",
+            "textFormat": {"foregroundColor": WHITE, "bold": True, "fontSize": 10}}},
+        "fields": "userEnteredFormat(backgroundColor,horizontalAlignment,"
+                  "verticalAlignment,wrapStrategy,textFormat)"}})
+
+    # 3. Header height + green accent underline.
+    reqs.append({"updateDimensionProperties": {
+        "range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 0, "endIndex": 1},
+        "properties": {"pixelSize": 38}, "fields": "pixelSize"}})
+    reqs.append({"updateBorders": {
+        "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1,
+                  "startColumnIndex": 0, "endColumnIndex": ncols},
+        "bottom": {"style": "SOLID_THICK", "color": GREEN_ACCENT}}})
+
+    # 4. Data rows: middle-aligned, readable size, comfortable height.
+    reqs.append({"repeatCell": {
+        "range": data,
+        "cell": {"userEnteredFormat": {
+            "verticalAlignment": "MIDDLE", "textFormat": {"fontSize": 10}}},
+        "fields": "userEnteredFormat(verticalAlignment,textFormat.fontSize)"}})
+    reqs.append({"updateDimensionProperties": {
+        "range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": end_row},
+        "properties": {"pixelSize": 28}, "fields": "pixelSize"}})
+
+    # 5. Zebra banding on the data rows (header excluded — we styled it above).
+    reqs.append({"addBanding": {"bandedRange": {
+        "range": data,
+        "rowProperties": {"firstBandColor": WHITE, "secondBandColor": BAND}}}})
+
+    # 6. Column widths.
+    for idx, px in (col_widths or {}).items():
+        reqs.append({"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS",
+                      "startIndex": idx, "endIndex": idx + 1},
+            "properties": {"pixelSize": px}, "fields": "pixelSize"}})
+
+    # 7. Score column: 1-decimal number, centered, subtle red→green heat gradient.
+    if score_col is not None:
+        srange = {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": end_row,
+                  "startColumnIndex": score_col, "endColumnIndex": score_col + 1}
+        reqs.append({"repeatCell": {
+            "range": srange,
+            "cell": {"userEnteredFormat": {
+                "horizontalAlignment": "CENTER",
+                "numberFormat": {"type": "NUMBER", "pattern": "0.0"}}},
+            "fields": "userEnteredFormat(horizontalAlignment,numberFormat)"}})
+        reqs.append({"addConditionalFormatRule": {"index": 0, "rule": {
+            "ranges": [srange],
+            "gradientRule": {
+                "minpoint": {"color": _rgb(0xF8, 0xD2, 0xD2), "type": "MIN"},
+                "midpoint": {"color": _rgb(0xFF, 0xF3, 0xCD), "type": "PERCENTILE", "value": "50"},
+                "maxpoint": {"color": _rgb(0xC6, 0xE7, 0xD0), "type": "MAX"}}}}})
+
+    # 8. Status column: one coloured chip per stage (bg + bold text).
+    if status_col is not None and status_colors:
+        # Center the status column for a tidy "chip" look.
+        reqs.append({"repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": end_row,
+                      "startColumnIndex": status_col, "endColumnIndex": status_col + 1},
+            "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
+            "fields": "userEnteredFormat.horizontalAlignment"}})
+        for value, (bg, fg) in status_colors.items():
+            reqs.append({"addConditionalFormatRule": {"index": 0, "rule": {
+                "ranges": [{"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": end_row,
+                            "startColumnIndex": status_col, "endColumnIndex": status_col + 1}],
+                "booleanRule": {
+                    "condition": {"type": "TEXT_EQ",
+                                  "values": [{"userEnteredValue": value}]},
+                    "format": {"backgroundColor": _rgb(*bg),
+                               "textFormat": {"foregroundColor": _rgb(*fg), "bold": True}}}}}})
+
+    ws.spreadsheet.batch_update({"requests": reqs})
+    return len(reqs)
 
 
 def _cell(v) -> str:

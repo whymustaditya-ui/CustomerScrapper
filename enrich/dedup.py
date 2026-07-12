@@ -131,6 +131,61 @@ def dedup_customers(
     return kept, excluded
 
 
+def ledger_identity_sets(ledger_path: str | None = None) -> tuple[set, set, set]:
+    """Identity sets already in the master ledger: (place_ids, phones, name_kels).
+
+    Exposed so callers (e.g. the scraper's stop-at-target qualifier) can check
+    net-new-ness in memory instead of re-reading the CSV per lead. Empty sets if
+    the ledger doesn't exist or can't be read.
+    """
+    ledger_path = ledger_path or LEDGER_PATH
+    if not os.path.exists(ledger_path):
+        return set(), set(), set()
+    try:
+        ledger = pd.read_csv(ledger_path, dtype=str).fillna("")
+    except Exception:
+        return set(), set(), set()
+    seen_pid = set(p for p in ledger.get("place_id", pd.Series(dtype=str)).tolist() if p)
+    seen_phones = set(p for p in ledger.get("phone_normalized", pd.Series(dtype=str)).tolist() if p)
+    seen_keys = set(k for k in ledger.get("identity_key", pd.Series(dtype=str)).tolist() if k)
+    return seen_pid, seen_phones, seen_keys
+
+
+def phone_set(raw_phones: list[str]) -> set[str]:
+    """Normalize a list of raw phone strings to a set of +62 numbers (blanks dropped)."""
+    return {p for p in (normalize_phone(x) for x in raw_phones) if p}
+
+
+def _row_phones(row: dict) -> set[str]:
+    """Every phone identity a lead carries: WA mobile, landline, and the raw number."""
+    cand = set()
+    for v in (row.get("phone_normalized"), row.get("phone_landline"),
+              normalize_phone(row.get("phone", ""))):
+        if v:
+            cand.add(v)
+    return cand
+
+
+def dedup_customer_phones(
+    rows: list[dict], customer_phones: set[str]
+) -> tuple[list[dict], list[dict]]:
+    """Exclude rows whose phone (WA, landline, or raw) matches a known customer
+    number. Phone-only — no name matching — so it's robust to name spelling drift.
+    Returns (kept, excluded). Used to filter against the Kontak Customer directory.
+    """
+    if not customer_phones:
+        return rows, []
+    kept, excluded = [], []
+    for row in rows:
+        if _row_phones(row) & customer_phones:
+            r = dict(row)
+            r["exclude_reason"] = "existing customer (No WA/No Bisnis — Kontak Customer)"
+            excluded.append(r)
+        else:
+            kept.append(row)
+    return kept, excluded
+
+
 def filter_against_ledger(
     rows: list[dict], ledger_path: str | None = None
 ) -> tuple[list[dict], list[dict]]:
@@ -142,14 +197,8 @@ def filter_against_ledger(
     ledger_path = ledger_path or LEDGER_PATH
     if not os.path.exists(ledger_path):
         return rows, []
-    try:
-        ledger = pd.read_csv(ledger_path, dtype=str).fillna("")
-    except Exception:
-        return rows, []
 
-    seen_pid = set(p for p in ledger.get("place_id", pd.Series(dtype=str)).tolist() if p)
-    seen_phones = set(p for p in ledger.get("phone_normalized", pd.Series(dtype=str)).tolist() if p)
-    seen_keys = set(ledger.get("identity_key", pd.Series(dtype=str)).tolist())
+    seen_pid, seen_phones, seen_keys = ledger_identity_sets(ledger_path)
 
     new_rows, seen_rows = [], []
     for row in rows:

@@ -24,6 +24,13 @@ from integrations import gsheets
 from crm import tracker as crm_tracker
 from ui import theme
 
+# Kontak Customer directory (same spreadsheet): auto-dedup leads against existing
+# Accurate customers by phone. Labels live on row 3 under a banner; we match on the
+# two phone columns only (names can be stored inconsistently).
+CUSTOMER_DIR_TAB = "Kontak Customer"
+CUSTOMER_DIR_PHONE_COLS = {"No WA", "No Bisnis"}
+CUSTOMER_DIR_HEADER_ROW = 3
+
 st.set_page_config(page_title="ROSH Customer Scraper", page_icon="📦", layout="wide")
 
 theme.apply_theme()
@@ -49,7 +56,25 @@ with st.sidebar:
         "Industry category", cat_mod.buckets(), default=["Catering"]
     )
 
-    max_results = st.slider("Max results (hard cap)", 10, 200, 40, step=10)
+    auto_topup = st.checkbox(
+        "🎯 Auto top-up: scrape until target qualified leads reached", value=True,
+        help="Keeps scraping until it collects the target number of leads that "
+             "actually pass the rules (have a WhatsApp number, meet the review floor, "
+             "and are net-new) — not just N raw listings. Bounded by the safety cap below.",
+    )
+    target_qualified = None
+    if auto_topup:
+        target_qualified = st.slider(
+            "Target qualified leads (WA, net-new)", 5, 50, 10, step=5,
+            help="Stop once this many rule-passing leads are found. A full batch is 10.",
+        )
+        max_results = st.slider(
+            "Safety cap — max listings to scan", 20, 400, 120, step=20,
+            help="Absolute ceiling so a low hit-rate area can't scrape forever "
+                 "(anti-block). If reached before the target, it stops and tells you.",
+        )
+    else:
+        max_results = st.slider("Max results (hard cap)", 10, 200, 40, step=10)
 
     min_reviews = st.slider(
         "Minimum reviews (legit filter)", 0, 50, 5, step=1,
@@ -109,6 +134,16 @@ with st.sidebar:
                 st.success(f"Dropdown terpasang di {n} kolom — refresh Sheet untuk lihat.")
             except Exception as e:
                 st.error(f"Gagal memasang dropdown: {e}")
+        if st.button("🎨 Percantik tampilan tabel (warna profesional)",
+                     use_container_width=True,
+                     help="Header navy + teks putih, baris selang-seling, kolom Status "
+                          "berwarna per tahap, gradasi skor, lebar kolom rapi. "
+                          "Aman diklik berulang."):
+            try:
+                n = crm_tracker.beautify_sheet()
+                st.success(f"Tabel dipercantik ({n} aturan format) — refresh Sheet untuk lihat.")
+            except Exception as e:
+                st.error(f"Gagal mempercantik tabel: {e}")
     else:
         st.caption("🔒 Sheet belum dikonfigurasi (lihat README).")
 
@@ -156,6 +191,59 @@ def _run_pipeline():
         })
         live_box.dataframe(pd.DataFrame(live_rows), use_container_width=True, height=240)
 
+    # Load the existing-customer file ONCE (a Streamlit upload buffer read twice can
+    # come back empty), then reuse it for both the target qualifier and step 6.
+    customer_df = _load_customer_df(customer_file)
+
+    # Build the "does this lead count toward the target" predicate. It mirrors the
+    # pipeline's own rules so "target 10" means 10 leads that will actually survive:
+    # review floor + a real WhatsApp number + net-new vs ledger/customers/this run.
+    cust_phones, cust_names = (set(), [])
+    if customer_df is not None and not customer_df.empty:
+        cust_phones, cust_names = dedup_mod._load_customer_keys(customer_df)
+    # Auto-read the Kontak Customer directory (same spreadsheet) and match on phone
+    # only (No WA + No Bisnis) — so existing Accurate customers never resurface as
+    # "new" leads, without needing a manual upload. Safe no-op if the tab is absent.
+    dir_phones: set[str] = set()
+    try:
+        _raw_dir = gsheets.read_column_values(
+            CUSTOMER_DIR_TAB, CUSTOMER_DIR_PHONE_COLS, header_row=CUSTOMER_DIR_HEADER_ROW
+        )
+        dir_phones = dedup_mod.phone_set(_raw_dir)
+    except Exception:
+        dir_phones = set()
+    lg_pid, lg_phone, lg_key = (
+        dedup_mod.ledger_identity_sets() if use_ledger else (set(), set(), set())
+    )
+    q_pid, q_phone, q_key = set(), set(), set()  # counted-this-run identities
+
+    def _qualifies(raw_row: dict) -> bool:
+        er = enrich_row(raw_row)
+        if (er.get("review_count") or 0) < min_reviews:
+            return False
+        if not str(er.get("phone_normalized", "") or "").strip():
+            return False  # WA-only rule: no mobile number, doesn't count
+        pid, phone, name_kel = dedup_mod._row_identity(er)
+        # Net-new against the ledger, the customer list, and already-counted leads.
+        if (pid and pid in lg_pid) or (phone and phone in lg_phone) or (name_kel and name_kel in lg_key):
+            return False
+        if dir_phones and (dedup_mod._row_phones(er) & dir_phones):
+            return False  # already an Accurate customer (Kontak Customer directory)
+        if phone and phone in cust_phones:
+            return False
+        name = dedup_mod._name_key(er.get("name", ""))
+        if name and any(dedup_mod._fuzzy_equal(name, cn) for cn in cust_names):
+            return False
+        if (pid and pid in q_pid) or (phone and phone in q_phone) or (name_kel and name_kel in q_key):
+            return False
+        if pid:
+            q_pid.add(pid)
+        if phone:
+            q_phone.add(phone)
+        if name_kel:
+            q_key.add(name_kel)
+        return True
+
     # 1. Scrape
     raw = gmaps.scrape(
         kota=kota,
@@ -170,6 +258,8 @@ def _run_pipeline():
         watch_mode=watch_mode,
         progress=on_progress,
         on_lead=on_lead,
+        target_qualified=target_qualified,
+        qualifies=_qualifies if target_qualified else None,
     )
     progress_bar.progress(1.0)
     live_box.empty()
@@ -208,9 +298,11 @@ def _run_pipeline():
             legit.append(r)
     unique = legit
 
-    # 6. Dedup against customer list
-    customer_df = _load_customer_df(customer_file)
+    # 6. Dedup against customer list (loaded once above) + the Kontak Customer
+    # directory (phone-only match on No WA / No Bisnis).
     kept, customer_excluded = dedup_mod.dedup_customers(unique, customer_df)
+    kept, dir_excluded = dedup_mod.dedup_customer_phones(kept, dir_phones)
+    customer_excluded = customer_excluded + dir_excluded
 
     # 7. Ledger filtering
     if use_ledger:
@@ -352,8 +444,15 @@ if "result" in st.session_state:
                     use_container_width=True,
                 )
             else:
-                st.error(res["reason"])
+                # Not a crash — this is the quality gate holding the line. Render it
+                # as a warning (not a red error) so it reads as "tunggu dulu", not "rusak".
+                st.warning(res["reason"])
                 if res["unworked"]:
+                    st.caption(
+                        "Buka Google Sheet, ubah kolom **Status** baris di bawah dari "
+                        "`New` ke `Contacted`/`Replied`/`Quoted`/`Won`/`Lost`, lalu klik "
+                        "**Build Sales' next batch** lagi."
+                    )
                     st.dataframe(
                         pd.DataFrame(res["unworked"])[["name", "status", "phone_normalized"]],
                         use_container_width=True,

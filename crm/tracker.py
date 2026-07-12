@@ -183,6 +183,21 @@ def release_next_batch(pool: list[dict], size: int = DEFAULT_BATCH_SIZE) -> dict
     # a batch, even if the caller passed a pool that wasn't pre-deduped.
     pool, _internal_dropped = dedup_mod.internal_dedup(pool)
 
+    # WA-only gate: a lead reaches the Sheet only if it has a mobile WhatsApp number.
+    # enrich_row already parks landlines (021…) in phone_landline and leaves
+    # phone_normalized empty, so a non-empty phone_normalized == a usable WA contact.
+    # Landline/no-phone listings stay in the export for audit but never get released
+    # to Sales, so no more blank "No. WhatsApp" rows in the Sheet.
+    pool = [r for r in pool if str(r.get("phone_normalized", "") or "").strip()]
+    if not pool:
+        return {
+            "released": False,
+            "reason": "Tidak ada lead ber-nomor WhatsApp di pool — yang tersisa hanya "
+                      "listing landline (021…) atau tanpa nomor. Scrape lagi atau perluas area.",
+            "batch_id": _latest_batch_id(tracker),
+            "leads": [], "unworked": [], "remaining_pool": 0,
+        }
+
     # Filter the scored pool against the Sheet — the Sheet is the dedup authority
     # for batches. (We deliberately do NOT filter against the master ledger here:
     # the scrape step already appended this run's leads to the ledger, so a ledger
@@ -252,6 +267,44 @@ def apply_dropdowns() -> int:
          "kind": "list", "values": NOTE_OPTIONS, "strict": False},
     ]
     return gsheets.set_validations(rules)
+
+
+# Status → (background RGB, text RGB) chips. Professional, muted palette that
+# reads at a glance: New = neutral, cool blue while in-flight, amber when waiting,
+# purple when quoted, green = Won, red = Lost. Kept in sync with STATUS_OPTIONS.
+STATUS_COLORS = {
+    "New":       ((0xE8, 0xEA, 0xED), (0x5F, 0x63, 0x68)),
+    "Contacted": ((0xE1, 0xEC, 0xFB), (0x19, 0x67, 0xD2)),
+    "Replied":   ((0xFE, 0xF3, 0xD6), (0xB0, 0x60, 0x00)),
+    "Quoted":    ((0xF1, 0xE4, 0xFB), (0x84, 0x30, 0xCE)),
+    "Won":       ((0xDD, 0xF0, 0xE3), (0x0F, 0x7A, 0x3D)),
+    "Lost":      ((0xFB, 0xE0, 0xDE), (0xC5, 0x22, 0x1F)),
+}
+
+# Per-column pixel widths, sized to the content each holds.
+_COL_WIDTHS = {
+    "batch_id": 55, "date_added": 95, "status": 105, "owner": 70,
+    "next_action_date": 105, "notes": 170, "name": 250, "industry": 95,
+    "store_size": 105, "store_size_score": 60, "phone_normalized": 135,
+    "wa_link": 105, "website_canonical": 170, "kelurahan": 120, "kota": 120,
+    "address": 270, "place_id": 150, "maps_link": 105,
+}
+
+
+def beautify_sheet() -> int:
+    """One-click professional styling for the CRM Sheet: dark header, zebra rows,
+    colour-coded Status chips, score heat gradient, tuned widths. Idempotent —
+    safe to click repeatedly. Returns the number of formatting requests applied.
+    """
+    return gsheets.beautify(
+        TRACKER_COLUMNS,
+        TRACKER_HEADER_ROW,
+        status_col=TRACKER_COLUMNS.index("status"),
+        status_colors=STATUS_COLORS,
+        score_col=TRACKER_COLUMNS.index("store_size_score"),
+        col_widths={TRACKER_COLUMNS.index(k): v for k, v in _COL_WIDTHS.items()},
+        freeze_cols=0,
+    )
 
 
 def repair_sheet_layout() -> dict:

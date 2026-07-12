@@ -341,6 +341,8 @@ def scrape(
     watch_mode: bool = False,
     progress: ProgressFn = _noop,
     on_lead: Optional[Callable[[dict], None]] = None,
+    target_qualified: Optional[int] = None,
+    qualifies: Optional[Callable[[dict], bool]] = None,
 ) -> list[dict]:
     """Run the scrape grid and return a list of place dicts.
 
@@ -348,19 +350,36 @@ def scrape(
       kota: city name used in the search query.
       kecamatan_list: kecamatan to iterate for coverage (use [""] for kota-only).
       buckets: industry buckets from categories.py (each expands to synonyms).
-      max_results: hard cap on total places collected this run.
+      max_results: hard safety cap on total places scanned this run. When
+        target_qualified is set this is only a ceiling (stop-at-target wins first);
+        without a target it's the plain collection cap (old behaviour).
       delay_min/delay_max: human pause bounds (s) between places (non-uniform draw).
       scroll_min/scroll_max: human pause bounds (s) between feed scrolls.
       headless: run browser headless (ignored — forced visible — when watch_mode).
       watch_mode: visible browser + simulated cursor + human pacing (anti-block).
       progress: callback(message, fraction 0..1) for UI updates.
       on_lead: optional callback(lead_dict) fired as each lead is collected (live UI).
+      target_qualified: if set, keep scraping until this many *qualified* leads are
+        collected (per `qualifies`), instead of stopping at max_results raw. Still
+        bounded by max_results as an absolute anti-block ceiling.
+      qualifies: predicate(place_dict) -> bool deciding if a scraped lead counts
+        toward target_qualified (e.g. has a WA number, passes review floor, net-new).
     """
     if watch_mode:
         headless = False  # the whole point of watch mode is to see it
 
     results: list[Place] = []
     seen_urls: set[str] = set()
+    qualified = 0  # count of leads passing `qualifies` (drives target-based stop)
+
+    def _reached_goal() -> bool:
+        """Stop condition. Target-based when a target is set (raw cap is the ceiling),
+        else the plain raw cap. Keeps 'scrape until N good leads' from over-running."""
+        if len(results) >= max_results:
+            return True  # absolute anti-block ceiling, always wins
+        if target_qualified is not None:
+            return qualified >= target_qualified
+        return False
 
     # Build the query grid: every (synonym, area) pair, then shuffle so the run
     # order isn't a predictable bot signature (session-level randomization).
@@ -376,10 +395,18 @@ def scrape(
     total_steps = max(len(query_grid), 1)
 
     def _emit(place: Place) -> None:
+        nonlocal qualified
         results.append(place)
+        d = place.as_dict()
+        if qualifies is not None:
+            try:
+                if qualifies(d):
+                    qualified += 1
+            except Exception:
+                pass
         if on_lead:
             try:
-                on_lead(place.as_dict())
+                on_lead(d)
             except Exception:
                 pass
 
@@ -395,10 +422,17 @@ def scrape(
 
         try:
             for i, (term, bucket, area_label) in enumerate(query_grid):
-                if len(results) >= max_results:
+                if _reached_goal():
                     break
                 frac = i / total_steps
-                progress(f"Searching: {term} — {area_label} ({len(results)} leads so far)", frac)
+                if target_qualified is not None:
+                    progress(
+                        f"Searching: {term} — {area_label} "
+                        f"({qualified}/{target_qualified} qualified, {len(results)} scanned)",
+                        frac,
+                    )
+                else:
+                    progress(f"Searching: {term} — {area_label} ({len(results)} leads so far)", frac)
 
                 query = f"{term} {area_label}".replace(" ", "+")
                 url = f"https://www.google.com/maps/search/{query}"
@@ -451,7 +485,7 @@ def scrape(
                         time.sleep(random.uniform(0.1, 0.4))
 
                 for href in place_urls:
-                    if len(results) >= max_results:
+                    if _reached_goal():
                         break
                     seen_urls.add(href)
                     try:
@@ -480,7 +514,13 @@ def scrape(
                 if random.random() < 0.25:
                     _sleep_human(delay_min, delay_max)
 
-            progress(f"Done. {len(results)} leads collected.", 1.0)
+            if target_qualified is not None:
+                progress(
+                    f"Done. {qualified}/{target_qualified} qualified "
+                    f"({len(results)} scanned).", 1.0,
+                )
+            else:
+                progress(f"Done. {len(results)} leads collected.", 1.0)
         finally:
             context.close()
             browser.close()
